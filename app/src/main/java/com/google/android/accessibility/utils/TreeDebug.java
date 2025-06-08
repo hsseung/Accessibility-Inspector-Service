@@ -393,7 +393,7 @@ public class TreeDebug {
       JSONObject metadata = new JSONObject();
       jsonObject.put("id", rand.nextInt());
       metadata.put("hashCode", node.hashCode());
-      //jsonObject.put("resourceId", node.getViewIdResourceName());
+      jsonObject.put("resourceId", node.getViewIdResourceName());
       if (node.getClassName() != null) {
         if (node.getRoleDescription() != null) {
           metadata.put("roleDescription", node.getRoleDescription());
