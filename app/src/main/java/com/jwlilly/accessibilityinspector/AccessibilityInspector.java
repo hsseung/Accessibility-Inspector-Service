@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Build;
+import android.os.Bundle;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -31,6 +32,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
     private AccessibilityListener captureListener;
 
     private AccessibilityListener importantListener;
+    private AccessibilityListener actionListener;
     public AccessibilityInspector _this = this;
     private JSONObject jsonObject;
 
@@ -88,6 +90,8 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         registerReceiver(captureListener, new IntentFilter("A11yInspector"));
         importantListener = new AccessibilityListener();
         registerReceiver(importantListener, new IntentFilter("A11yInspectorImportant"));
+        actionListener = new AccessibilityListener();
+        registerReceiver(actionListener, new IntentFilter("A11yInspectorAction"));
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.notificationTimeout = 100;
         info.flags =
@@ -108,6 +112,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
     public boolean onUnbind(Intent intent) {
         unregisterReceiver(captureListener);
         unregisterReceiver(importantListener);
+        unregisterReceiver(actionListener);
         return super.onUnbind(intent);
     }
 
@@ -120,15 +125,238 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         @RequiresApi(api = Build.VERSION_CODES.R)
         @Override
         public void onReceive(Context context, Intent intent) {
+            Log.d(LOG_TAG, "Broadcast received with action: " + intent.getAction());
+
             if(intent.getAction().equalsIgnoreCase("A11yInspector")) {
                 hideNotImportant();
                 startCapture();
             } else if(intent.getAction().equalsIgnoreCase("A11yInspectorImportant")) {
                 showNotImportant();
                 startCapture();
+            } else if(intent.getAction().equalsIgnoreCase("A11yInspectorAction")) {
+                Log.d(LOG_TAG, "Processing action request");
+                // Handle action requests - support both resourceId and hashCode
+                String resourceId = intent.getStringExtra("resourceId");
+                String hashCodeStr = intent.getStringExtra("hashCode");
+                String action = intent.getStringExtra("action");
+                String text = intent.getStringExtra("text");
+                performAction(resourceId, hashCodeStr, action, text);
+            } else {
+                Log.w(LOG_TAG, "Unknown broadcast action: " + intent.getAction());
             }
         }
     }
+
+    // Updated method to perform actions on UI elements using resourceId or hashCode
+    public void performAction(String resourceId, String hashCodeStr, String actionType, String text) {
+        try {
+            AccessibilityNodeInfo targetNode = null;
+            String searchCriteria = "";
+
+            // Try to find node by resourceId first, then by hashCode
+            if (resourceId != null && !resourceId.isEmpty()) {
+                targetNode = findNodeByResourceId(resourceId);
+                searchCriteria = "resource ID '" + resourceId + "'";
+            } else if (hashCodeStr != null && !hashCodeStr.isEmpty()) {
+                try {
+                    int hashCode = Integer.parseInt(hashCodeStr);
+                    targetNode = findNodeByHashCode(hashCode);
+                    searchCriteria = "hash code '" + hashCodeStr + "'";
+                } catch (NumberFormatException e) {
+                    sendActionResult(false, "Invalid hash code format: " + hashCodeStr);
+                    return;
+                }
+            }
+
+            if (targetNode == null) {
+                String errorMsg = searchCriteria.isEmpty() ?
+                        "No search criteria provided (resourceId or hashCode required)" :
+                        "Node with " + searchCriteria + " not found";
+                sendActionResult(false, errorMsg);
+                return;
+            }
+
+            boolean result = false;
+            String message = "";
+
+            switch (actionType.toUpperCase()) {
+                case "ACTION_CLICK":
+                case "CLICK":
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    message = result ? "Click action performed successfully" : "Click action failed";
+                    break;
+
+                case "ACTION_FOCUS":
+                case "FOCUS":
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                    message = result ? "Focus action performed successfully" : "Focus action failed";
+                    break;
+
+                case "ACTION_SET_TEXT":
+                case "SET_TEXT":
+                    if (text != null) {
+                        Bundle arguments = new Bundle();
+                        arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+                        result = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
+                        message = result ? "Set text action performed successfully" : "Set text action failed";
+                    } else {
+                        message = "Text parameter is required for SET_TEXT action";
+                    }
+                    break;
+
+                case "ACTION_CLEAR_TEXT":
+                case "CLEAR_TEXT":
+                    Bundle clearArgs = new Bundle();
+                    clearArgs.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "");
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clearArgs);
+                    message = result ? "Clear text action performed successfully" : "Clear text action failed";
+                    break;
+
+                case "ACTION_LONG_CLICK":
+                case "LONG_CLICK":
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK);
+                    message = result ? "Long click action performed successfully" : "Long click action failed";
+                    break;
+
+                case "ACTION_SCROLL_FORWARD":
+                case "SCROLL_FORWARD":
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                    message = result ? "Scroll forward action performed successfully" : "Scroll forward action failed";
+                    break;
+
+                case "ACTION_SCROLL_BACKWARD":
+                case "SCROLL_BACKWARD":
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+                    message = result ? "Scroll backward action performed successfully" : "Scroll backward action failed";
+                    break;
+
+                case "ACTION_ACCESSIBILITY_FOCUS":
+                case "ACCESSIBILITY_FOCUS":
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS);
+                    message = result ? "Accessibility focus action performed successfully" : "Accessibility focus action failed";
+                    break;
+
+                case "ACTION_CLEAR_ACCESSIBILITY_FOCUS":
+                case "CLEAR_ACCESSIBILITY_FOCUS":
+                    result = targetNode.performAction(AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS);
+                    message = result ? "Clear accessibility focus action performed successfully" : "Clear accessibility focus action failed";
+                    break;
+
+                default:
+                    message = "Unknown action type: " + actionType;
+                    break;
+            }
+
+            // Add search criteria info to the message
+            if (result) {
+                message += " (target found by " + searchCriteria + ")";
+            }
+
+            sendActionResult(result, message);
+            Log.d(LOG_TAG, message);
+
+        } catch (Exception e) {
+            String errorMessage = "Error performing action: " + e.getMessage();
+            sendActionResult(false, errorMessage);
+            Log.e(LOG_TAG, errorMessage, e);
+        }
+    }
+
+    // Helper method to find a node by its resource ID
+    private AccessibilityNodeInfo findNodeByResourceId(String resourceId) {
+        List<AccessibilityWindowInfo> windows = getWindows();
+
+        for (AccessibilityWindowInfo window : windows) {
+            AccessibilityNodeInfo rootNode = window.getRoot();
+            if (rootNode != null) {
+                AccessibilityNodeInfo foundNode = findNodeByResourceIdRecursive(rootNode, resourceId);
+                if (foundNode != null) {
+                    return foundNode;
+                }
+            }
+        }
+        return null;
+    }
+
+    // Helper method to find a node by its hash code
+    private AccessibilityNodeInfo findNodeByHashCode(int hashCode) {
+        List<AccessibilityWindowInfo> windows = getWindows();
+
+        for (AccessibilityWindowInfo window : windows) {
+            AccessibilityNodeInfo rootNode = window.getRoot();
+            if (rootNode != null) {
+                AccessibilityNodeInfo foundNode = findNodeByHashCodeRecursive(rootNode, hashCode);
+                if (foundNode != null) {
+                    return foundNode;
+                }
+            }
+        }
+        return null;
+    }
+
+    // Recursive helper method to search through the node tree by resource ID
+    private AccessibilityNodeInfo findNodeByResourceIdRecursive(AccessibilityNodeInfo node, String resourceId) {
+        if (node == null) return null;
+
+        // Check if current node matches the resource ID
+        if (resourceId.equals(node.getViewIdResourceName())) {
+            return node;
+        }
+
+        // Search through children
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                AccessibilityNodeInfo foundNode = findNodeByResourceIdRecursive(child, resourceId);
+                if (foundNode != null) {
+                    return foundNode;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // Recursive helper method to search through the node tree by hash code
+    private AccessibilityNodeInfo findNodeByHashCodeRecursive(AccessibilityNodeInfo node, int hashCode) {
+        if (node == null) return null;
+
+        // Check if current node matches the hash code
+        if (node.hashCode() == hashCode) {
+            return node;
+        }
+
+        // Search through children
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                AccessibilityNodeInfo foundNode = findNodeByHashCodeRecursive(child, hashCode);
+                if (foundNode != null) {
+                    return foundNode;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // Send action result back to the client
+    public void sendActionResult(boolean success, String message) {
+        try {
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "actionResult");
+            resultJson.put("success", success);
+            resultJson.put("message", message);
+
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            SocketService.data = compress(resultJson.toString());
+            startService(resultIntent);
+            Log.d(LOG_TAG, "Action result sent: " + message);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error sending action result: " + e.getMessage());
+        }
+    }
+
     @Override
     public void takeScreenshot(int displayId, @NonNull Executor executor, @NonNull TakeScreenshotCallback callback) {
         super.takeScreenshot(displayId, executor, callback);

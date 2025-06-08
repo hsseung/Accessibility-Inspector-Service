@@ -135,9 +135,58 @@ public class SocketService extends Service {
                             intent.setAction("A11yInspectorImportant");
                             sendBroadcast(intent);
                         }
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("performAction")) {
+                            String resourceId = jsonObject.optString("resourceId", null);
+                            String hashCode = jsonObject.optString("hashCode", null);
+                            String action = jsonObject.optString("action", "");
+                            String text = jsonObject.optString("text", null);
+
+                            // Validate that we have either resourceId or hashCode, and an action
+                            if ((resourceId != null && !resourceId.isEmpty()) || (hashCode != null && !hashCode.isEmpty())) {
+                                if (!action.isEmpty()) {
+                                    Intent actionIntent = new Intent("com.jwlilly.accessibilityinspector");
+                                    actionIntent.setAction("A11yInspectorAction");
+
+                                    if (resourceId != null && !resourceId.isEmpty()) {
+                                        actionIntent.putExtra("resourceId", resourceId);
+                                    }
+                                    if (hashCode != null && !hashCode.isEmpty()) {
+                                        actionIntent.putExtra("hashCode", hashCode);
+                                    }
+
+                                    actionIntent.putExtra("action", action);
+                                    if (text != null && !text.isEmpty()) {
+                                        actionIntent.putExtra("text", text);
+                                    }
+                                    sendBroadcast(actionIntent);
+                                } else {
+                                    // Send error response for missing action
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "actionResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: action");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                // Send error response for missing node identifier
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "actionResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Missing required parameter: either resourceId or hashCode must be provided");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
 
                     } catch(JSONException e) {
                         Log.d("ERROR", e.getMessage());
+                        try {
+                            JSONObject errorResponse = new JSONObject();
+                            errorResponse.put("type", "error");
+                            errorResponse.put("message", "Invalid JSON format: " + e.getMessage());
+                            webSocket.send(errorResponse.toString());
+                        } catch (JSONException jsonException) {
+                            Log.e("ERROR", "Failed to send error response", jsonException);
+                        }
                     }
                 }
                 Log.d("SERVER", s);
