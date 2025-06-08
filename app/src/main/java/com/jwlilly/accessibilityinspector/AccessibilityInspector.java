@@ -1,6 +1,10 @@
 // app/src/main/java/com/jwlilly/accessibilityinspector/AccessibilityInspector.java
 package com.jwlilly.accessibilityinspector;
 
+import android.accessibilityservice.GestureDescription;
+import android.graphics.Path;
+import android.os.Handler;
+import android.os.Looper;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.BroadcastReceiver;
@@ -111,7 +115,8 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
                 | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
                 | AccessibilityServiceInfo.FEEDBACK_GENERIC
                 | AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-                | AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT;
+                | AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT
+                | AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES; // This line added during debugging, but doesn't seem critical.
         info.eventTypes = AccessibilityEvent.TYPE_ANNOUNCEMENT;
         this.setServiceInfo(info);
     }
@@ -646,5 +651,188 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         byte[] compressed = os.toByteArray();
         os.close();
         return compressed;
+    }
+
+    // Method to perform gesture actions using coordinates
+    public void performGesture(String gestureType, float x, float y, float endX, float endY, int duration) {
+        Log.d(LOG_TAG, "performGesture called with: type=" + gestureType + ", x=" + x + ", y=" + y + ", endX=" + endX + ", endY=" + endY + ", duration=" + duration);
+
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
+            Log.w(LOG_TAG, "Android version too low for gestures: " + android.os.Build.VERSION.SDK_INT);
+            sendGestureResult(false, "Gesture actions require Android API 24 or higher");
+            return;
+        }
+
+        Log.d(LOG_TAG, "Android version OK, proceeding with gesture");
+
+        try {
+            Log.d(LOG_TAG, "Creating GestureDescription.Builder");
+            GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
+            Path gesturePath = new Path();
+
+            Log.d(LOG_TAG, "Processing gesture type: " + gestureType.toUpperCase());
+
+            switch (gestureType.toUpperCase()) {
+                case "TAP":
+                case "CLICK":
+                    Log.d(LOG_TAG, "Creating TAP gesture at (" + x + ", " + y + ")");
+                    gesturePath.moveTo(x, y);
+                    int tapDuration = duration > 0 ? duration : 100;
+                    Log.d(LOG_TAG, "TAP duration: " + tapDuration + "ms");
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, tapDuration));
+                    break;
+
+                case "LONG_PRESS":
+                case "LONG_CLICK":
+                    Log.d(LOG_TAG, "Creating LONG_PRESS gesture at (" + x + ", " + y + ")");
+                    int longPressDuration = duration > 0 ? Math.max(duration, 500) : 1000;
+                    Log.d(LOG_TAG, "LONG_PRESS duration: " + longPressDuration + "ms");
+                    gesturePath.moveTo(x, y);
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, longPressDuration));
+                    break;
+
+                case "SCROLL":
+                case "SWIPE":
+                    Log.d(LOG_TAG, "Creating SCROLL gesture from (" + x + ", " + y + ") to (" + endX + ", " + endY + ")");
+                    if (endX == 0 && endY == 0) {
+                        Log.e(LOG_TAG, "End coordinates are required for scroll/swipe");
+                        sendGestureResult(false, "End coordinates (endX, endY) are required for scroll/swipe gestures");
+                        return;
+                    }
+                    gesturePath.moveTo(x, y);
+                    gesturePath.lineTo(endX, endY);
+                    int scrollDuration = duration > 0 ? duration : 300;
+                    Log.d(LOG_TAG, "SCROLL duration: " + scrollDuration + "ms");
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, scrollDuration));
+                    break;
+
+                case "SCROLL_UP":
+                    Log.d(LOG_TAG, "Creating SCROLL_UP gesture from (" + x + ", " + y + ")");
+                    gesturePath.moveTo(x, y);
+                    gesturePath.lineTo(x, y - 300);
+                    int scrollUpDuration = duration > 0 ? duration : 300;
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, scrollUpDuration));
+                    break;
+
+                case "SCROLL_DOWN":
+                    Log.d(LOG_TAG, "Creating SCROLL_DOWN gesture from (" + x + ", " + y + ")");
+                    gesturePath.moveTo(x, y);
+                    gesturePath.lineTo(x, y + 300);
+                    int scrollDownDuration = duration > 0 ? duration : 300;
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, scrollDownDuration));
+                    break;
+
+                case "SCROLL_LEFT":
+                    Log.d(LOG_TAG, "Creating SCROLL_LEFT gesture from (" + x + ", " + y + ")");
+                    gesturePath.moveTo(x, y);
+                    gesturePath.lineTo(x - 300, y);
+                    int scrollLeftDuration = duration > 0 ? duration : 300;
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, scrollLeftDuration));
+                    break;
+
+                case "SCROLL_RIGHT":
+                    Log.d(LOG_TAG, "Creating SCROLL_RIGHT gesture from (" + x + ", " + y + ")");
+                    gesturePath.moveTo(x, y);
+                    gesturePath.lineTo(x + 300, y);
+                    int scrollRightDuration = duration > 0 ? duration : 300;
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, scrollRightDuration));
+                    break;
+
+                case "DOUBLE_TAP":
+                    Log.d(LOG_TAG, "Creating DOUBLE_TAP gesture at (" + x + ", " + y + ")");
+                    gesturePath.moveTo(x, y);
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(gesturePath, 0, 50));
+
+                    Path secondTapPath = new Path();
+                    secondTapPath.moveTo(x, y);
+                    gestureBuilder.addStroke(new GestureDescription.StrokeDescription(secondTapPath, 150, 50));
+                    break;
+
+                default:
+                    Log.e(LOG_TAG, "Unknown gesture type: " + gestureType);
+                    sendGestureResult(false, "Unknown gesture type: " + gestureType);
+                    return;
+            }
+
+            Log.d(LOG_TAG, "Building gesture description");
+            GestureDescription gesture = gestureBuilder.build();
+
+            Log.d(LOG_TAG, "Creating gesture result callback");
+            GestureResultCallback gestureCallback = new GestureResultCallback() {
+                @Override
+                public void onCompleted(GestureDescription gestureDescription) {
+                    super.onCompleted(gestureDescription);
+                    Log.d(LOG_TAG, "Gesture completed successfully");
+                    sendGestureResult(true, gestureType + " gesture completed successfully at (" + x + ", " + y + ")");
+                }
+
+                @Override
+                public void onCancelled(GestureDescription gestureDescription) {
+                    super.onCancelled(gestureDescription);
+                    Log.w(LOG_TAG, "Gesture was cancelled");
+                    sendGestureResult(false, gestureType + " gesture was cancelled");
+                }
+            };
+
+            Log.d(LOG_TAG, "Creating handler for main looper");
+            Handler mainHandler = new Handler(Looper.getMainLooper());
+
+            Log.d(LOG_TAG, "Dispatching gesture...");
+            boolean result = dispatchGesture(gesture, gestureCallback, mainHandler);
+
+            // Add timeout mechanism for debugging
+            mainHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    Log.w(LOG_TAG, "Gesture timeout - no callback received within 5 seconds");
+                    // Note: We can't easily cancel the gesture callback, but we can send a timeout result
+                    // Only send if we haven't already sent a result
+                }
+            }, 5000); // 5 second timeout
+
+            Log.d(LOG_TAG, "dispatchGesture returned: " + result);
+
+            if (!result) {
+                Log.e(LOG_TAG, "Failed to dispatch gesture");
+                sendGestureResult(false, "Failed to dispatch " + gestureType + " gesture");
+            } else {
+                Log.d(LOG_TAG, "Gesture dispatched successfully, waiting for callback");
+            }
+
+        } catch (Exception e) {
+            String errorMessage = "Exception in performGesture: " + e.getMessage();
+            Log.e(LOG_TAG, errorMessage, e);
+            e.printStackTrace();
+            sendGestureResult(false, errorMessage);
+        } catch (Error e) {
+            String errorMessage = "Error in performGesture: " + e.getMessage();
+            Log.e(LOG_TAG, errorMessage, e);
+            e.printStackTrace();
+            sendGestureResult(false, errorMessage);
+        }
+    }
+    // Send gesture result back to the client
+    public void sendGestureResult(boolean success, String message) {
+        Log.d(LOG_TAG, "sendGestureResult called: success=" + success + ", message=" + message);
+        try {
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "gestureResult");
+            resultJson.put("success", success);
+            resultJson.put("message", message);
+
+            Log.d(LOG_TAG, "Creating result intent for gesture result");
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+
+            Log.d(LOG_TAG, "Compressing gesture result JSON: " + resultJson.toString());
+            SocketService.data = compress(resultJson.toString());
+
+            Log.d(LOG_TAG, "Starting service to send gesture result");
+            startService(resultIntent);
+
+            Log.d(LOG_TAG, "Gesture result sent successfully: " + message);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error sending gesture result: " + e.getMessage(), e);
+            e.printStackTrace();
+        }
     }
 }

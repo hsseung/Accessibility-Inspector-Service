@@ -6,4 +6,4 @@
     android:notificationTimeout="1000"
     android:isAccessibilityTool="true"
     android:canRetrieveWindowContent="true"
-    />
+    android:canPerformGestures="true" />    <!-- this line critical for gestures -->

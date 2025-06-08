@@ -131,6 +131,10 @@ public class SocketService extends Service {
                 if(s != null) {
                     try{
                         JSONObject jsonObject = new JSONObject(s);
+                        // Add this right after the JSON parsing, before any other message handling
+                        Log.d("SERVER", "Received JSON: " + jsonObject.toString());
+                        Log.d("SERVER", "Message field: '" + jsonObject.optString("message", "NOT_FOUND") + "'");
+
                         if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("capture")) {
                             Intent intent = new Intent("com.jwlilly.accessibilityinspector");
                             intent.setAction("A11yInspector");
@@ -223,6 +227,53 @@ public class SocketService extends Service {
                             }
                         }
 
+                        // Handle gesture requests - DIRECT METHOD CALL
+                        if(jsonObject.has("message")) {
+                            String messageValue = jsonObject.getString("message");
+                            Log.d("SERVER", "Message value comparison: '" + messageValue + "' vs 'performGesture'");
+                            Log.d("SERVER", "Equals check: " + messageValue.equals("performGesture"));
+                            Log.d("SERVER", "EqualsIgnoreCase check: " + messageValue.equalsIgnoreCase("performGesture"));
+
+                            if(messageValue.equalsIgnoreCase("performGesture")) {
+                                Log.d("SERVER", "Processing performGesture request");
+
+                                if (accessibilityServiceInstance != null) {
+                                    Log.d("SERVER", "AccessibilityService instance is available");
+
+                                    String gestureType = jsonObject.optString("gestureType", "");
+                                    float x = (float) jsonObject.optDouble("x", 0);
+                                    float y = (float) jsonObject.optDouble("y", 0);
+                                    float endX = (float) jsonObject.optDouble("endX", 0);
+                                    float endY = (float) jsonObject.optDouble("endY", 0);
+                                    int duration = jsonObject.optInt("duration", 0);
+
+                                    Log.d("SERVER", "Gesture parameters - Type: '" + gestureType + "', Coordinates: (" + x + ", " + y + ")");
+                                    Log.d("SERVER", "End coordinates: (" + endX + ", " + endY + "), Duration: " + duration);
+
+                                    if (!gestureType.isEmpty() && x >= 0 && y >= 0) {
+                                        Log.d("SERVER", "Parameters valid, calling performGesture");
+                                        // Direct method call
+                                        accessibilityServiceInstance.performGesture(gestureType, x, y, endX, endY, duration);
+                                    } else {
+                                        Log.w("SERVER", "Invalid gesture parameters - gestureType: '" + gestureType + "', x: " + x + ", y: " + y);
+                                        JSONObject errorResponse = new JSONObject();
+                                        errorResponse.put("type", "gestureResult");
+                                        errorResponse.put("success", false);
+                                        errorResponse.put("message", "Missing or invalid required parameters: gestureType, x, and y coordinates are required");
+                                        webSocket.send(errorResponse.toString());
+                                    }
+                                } else {
+                                    Log.e("SERVER", "AccessibilityInspector instance not available for gesture");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "gestureResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Accessibility service not available");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.d("SERVER", "Message does not match performGesture: '" + messageValue + "'");
+                            }
+                        }
                     } catch(JSONException e) {
                         Log.d("ERROR", e.getMessage());
                         try {
