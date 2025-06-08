@@ -1,3 +1,4 @@
+// app/src/main/java/com/jwlilly/accessibilityinspector/SocketService.java
 package com.jwlilly.accessibilityinspector;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -36,6 +37,16 @@ public class SocketService extends Service {
     public static String BROADCAST_MESSAGE = "broadcast";
 
     public static byte[] data;
+
+    // Static reference to accessibility service instance
+    private static AccessibilityInspector accessibilityServiceInstance;
+
+    // Method to set the accessibility service instance
+    public static void setAccessibilityServiceInstance(AccessibilityInspector instance) {
+        accessibilityServiceInstance = instance;
+        Log.d("SocketService", "AccessibilityInspector instance " + (instance != null ? "set" : "cleared"));
+    }
+
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
@@ -173,6 +184,41 @@ public class SocketService extends Service {
                                 errorResponse.put("type", "actionResult");
                                 errorResponse.put("success", false);
                                 errorResponse.put("message", "Missing required parameter: either resourceId or hashCode must be provided");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
+                        // Handle launch activity requests - DIRECT METHOD CALL
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("launchActivity")) {
+                            Log.d("SERVER", "Processing launchActivity request");
+
+                            if (accessibilityServiceInstance != null) {
+                                String launchType = jsonObject.optString("launchType", "");
+                                String packageName = jsonObject.optString("packageName", null);
+                                String className = jsonObject.optString("className", null);
+                                String intentAction = jsonObject.optString("intentAction", null);
+                                String data = jsonObject.optString("data", null);
+                                String category = jsonObject.optString("category", null);
+                                String extras = jsonObject.optString("extras", null);
+
+                                Log.d("SERVER", "Launch parameters - Type: " + launchType + ", Package: " + packageName);
+
+                                if (!launchType.isEmpty()) {
+                                    // Direct method call instead of broadcast
+                                    accessibilityServiceInstance.launchActivity(launchType, packageName, className, intentAction, data, category, extras);
+                                } else {
+                                    Log.w("SERVER", "Empty launch type provided");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "launchResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: launchType");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.e("SERVER", "AccessibilityInspector instance not available");
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "launchResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Accessibility service not available");
                                 webSocket.send(errorResponse.toString());
                             }
                         }

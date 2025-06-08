@@ -1,11 +1,16 @@
+// app/src/main/java/com/jwlilly/accessibilityinspector/AccessibilityInspector.java
 package com.jwlilly.accessibilityinspector;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -80,12 +85,19 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
     @Override
     public void onDestroy() {
         Log.d("ServerSocket", "stopping server");
+        // Clear the instance reference
+        SocketService.setAccessibilityServiceInstance(null);
         super.onDestroy();
     }
 
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
+
+        // Set the instance reference for direct calls
+        SocketService.setAccessibilityServiceInstance(this);
+        Log.d(LOG_TAG, "AccessibilityInspector connected and instance set");
+
         captureListener = new AccessibilityListener();
         registerReceiver(captureListener, new IntentFilter("A11yInspector"));
         importantListener = new AccessibilityListener();
@@ -128,9 +140,11 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             Log.d(LOG_TAG, "Broadcast received with action: " + intent.getAction());
 
             if(intent.getAction().equalsIgnoreCase("A11yInspector")) {
+                Log.d(LOG_TAG, "Processing capture request (important only)");
                 hideNotImportant();
                 startCapture();
             } else if(intent.getAction().equalsIgnoreCase("A11yInspectorImportant")) {
+                Log.d(LOG_TAG, "Processing capture request (all)");
                 showNotImportant();
                 startCapture();
             } else if(intent.getAction().equalsIgnoreCase("A11yInspectorAction")) {
@@ -144,6 +158,210 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             } else {
                 Log.w(LOG_TAG, "Unknown broadcast action: " + intent.getAction());
             }
+        }
+    }
+
+    // Method to launch activities - now called directly
+    public void launchActivity(String launchType, String packageName, String className,
+                               String intentAction, String data, String category, String extrasJson) {
+        Log.d(LOG_TAG, "launchActivity called with type: " + launchType + ", package: " + packageName);
+
+        try {
+            Intent launchIntent = null;
+            String launchDescription = "";
+
+            switch (launchType.toUpperCase()) {
+                case "PACKAGE":
+                    // Launch app by package name (main launcher activity)
+                    if (packageName == null || packageName.isEmpty()) {
+                        sendLaunchResult(false, "Package name is required for PACKAGE launch type");
+                        return;
+                    }
+                    launchIntent = getPackageManager().getLaunchIntentForPackage(packageName);
+                    if (launchIntent == null) {
+                        sendLaunchResult(false, "No launch intent found for package: " + packageName);
+                        return;
+                    }
+                    launchDescription = "package '" + packageName + "'";
+                    break;
+
+                case "COMPONENT":
+                    // Launch specific activity by package and class name
+                    if (packageName == null || packageName.isEmpty() || className == null || className.isEmpty()) {
+                        sendLaunchResult(false, "Both package name and class name are required for COMPONENT launch type");
+                        return;
+                    }
+                    launchIntent = new Intent();
+                    launchIntent.setComponent(new ComponentName(packageName, className));
+                    launchDescription = "component '" + packageName + "/" + className + "'";
+                    break;
+
+                case "INTENT":
+                    // Launch with custom intent
+                    if (intentAction == null || intentAction.isEmpty()) {
+                        sendLaunchResult(false, "Intent action is required for INTENT launch type");
+                        return;
+                    }
+                    launchIntent = new Intent(intentAction);
+                    launchDescription = "intent action '" + intentAction + "'";
+
+                    // Add data URI if provided
+                    if (data != null && !data.isEmpty()) {
+                        launchIntent.setData(Uri.parse(data));
+                        launchDescription += " with data '" + data + "'";
+                    }
+
+                    // Add category if provided
+                    if (category != null && !category.isEmpty()) {
+                        launchIntent.addCategory(category);
+                        launchDescription += " and category '" + category + "'";
+                    }
+                    break;
+
+                case "URL":
+                    // Launch URL in browser or appropriate app
+                    if (data == null || data.isEmpty()) {
+                        sendLaunchResult(false, "URL is required for URL launch type (use 'data' field)");
+                        return;
+                    }
+                    launchIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(data));
+                    launchDescription = "URL '" + data + "'";
+                    break;
+
+                case "SETTINGS":
+                    // Launch specific settings screen
+                    String settingsAction = intentAction != null ? intentAction : android.provider.Settings.ACTION_SETTINGS;
+                    launchIntent = new Intent(settingsAction);
+                    launchDescription = "settings screen '" + settingsAction + "'";
+                    break;
+
+                case "DIAL":
+                    // Launch dialer with phone number
+                    if (data == null || data.isEmpty()) {
+                        sendLaunchResult(false, "Phone number is required for DIAL launch type (use 'data' field)");
+                        return;
+                    }
+                    launchIntent = new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + data));
+                    launchDescription = "dialer with number '" + data + "'";
+                    break;
+
+                case "SMS":
+                    // Launch SMS with phone number
+                    if (data == null || data.isEmpty()) {
+                        sendLaunchResult(false, "Phone number is required for SMS launch type (use 'data' field)");
+                        return;
+                    }
+                    launchIntent = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + data));
+                    launchDescription = "SMS to '" + data + "'";
+                    break;
+
+                case "EMAIL":
+                    // Launch email client
+                    launchIntent = new Intent(Intent.ACTION_SEND);
+                    launchIntent.setType("text/plain");
+                    if (data != null && !data.isEmpty()) {
+                        launchIntent.putExtra(Intent.EXTRA_EMAIL, new String[]{data});
+                        launchDescription = "email to '" + data + "'";
+                    } else {
+                        launchDescription = "email client";
+                    }
+                    break;
+
+                default:
+                    sendLaunchResult(false, "Unknown launch type: " + launchType);
+                    return;
+            }
+
+            if (launchIntent == null) {
+                sendLaunchResult(false, "Failed to create launch intent for " + launchDescription);
+                return;
+            }
+
+            // Add extras if provided
+            if (extrasJson != null && !extrasJson.isEmpty()) {
+                try {
+                    JSONObject extras = new JSONObject(extrasJson);
+                    addExtrasToIntent(launchIntent, extras);
+                } catch (Exception e) {
+                    Log.w(LOG_TAG, "Failed to parse extras JSON: " + e.getMessage());
+                    // Continue without extras rather than failing
+                }
+            }
+
+            // Set flags for launching from accessibility service
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+            // Check if the intent can be resolved (skip for COMPONENT type as it might not be in manifest)
+            if (!launchType.equalsIgnoreCase("COMPONENT")) {
+                PackageManager pm = getPackageManager();
+                List<ResolveInfo> resolveInfos = pm.queryIntentActivities(launchIntent, PackageManager.MATCH_DEFAULT_ONLY);
+
+                if (resolveInfos.isEmpty()) {
+                    sendLaunchResult(false, "No app found to handle " + launchDescription);
+                    return;
+                }
+            }
+
+            // Launch the activity
+            Log.d(LOG_TAG, "Attempting to start activity: " + launchDescription);
+            startActivity(launchIntent);
+            sendLaunchResult(true, "Successfully launched " + launchDescription);
+            Log.d(LOG_TAG, "Successfully launched " + launchDescription);
+
+        } catch (SecurityException e) {
+            String errorMessage = "Security exception launching activity: " + e.getMessage();
+            sendLaunchResult(false, errorMessage);
+            Log.e(LOG_TAG, errorMessage, e);
+        } catch (Exception e) {
+            String errorMessage = "Error launching activity: " + e.getMessage();
+            sendLaunchResult(false, errorMessage);
+            Log.e(LOG_TAG, errorMessage, e);
+        }
+    }
+
+    // Helper method to add extras to intent from JSON
+    private void addExtrasToIntent(Intent intent, JSONObject extrasJson) {
+        try {
+            java.util.Iterator<String> keys = extrasJson.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object value = extrasJson.get(key);
+
+                if (value instanceof String) {
+                    intent.putExtra(key, (String) value);
+                } else if (value instanceof Integer) {
+                    intent.putExtra(key, (Integer) value);
+                } else if (value instanceof Boolean) {
+                    intent.putExtra(key, (Boolean) value);
+                } else if (value instanceof Double) {
+                    intent.putExtra(key, (Double) value);
+                } else if (value instanceof Long) {
+                    intent.putExtra(key, (Long) value);
+                } else {
+                    // Convert other types to string
+                    intent.putExtra(key, value.toString());
+                }
+            }
+        } catch (Exception e) {
+            Log.w(LOG_TAG, "Error adding extras to intent: " + e.getMessage());
+        }
+    }
+
+    // Send launch result back to the client
+    public void sendLaunchResult(boolean success, String message) {
+        Log.d(LOG_TAG, "sendLaunchResult called: " + success + " - " + message);
+        try {
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "launchResult");
+            resultJson.put("success", success);
+            resultJson.put("message", message);
+
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            SocketService.data = compress(resultJson.toString());
+            startService(resultIntent);
+            Log.d(LOG_TAG, "Launch result sent: " + message);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error sending launch result: " + e.getMessage());
         }
     }
 
