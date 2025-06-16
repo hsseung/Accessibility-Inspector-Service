@@ -55,14 +55,14 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        if(event.getEventType() == AccessibilityEvent.TYPE_ANNOUNCEMENT) {
-            List<CharSequence> list = event.getText();
-            for(CharSequence charSequence : list) {
-                if(charSequence.toString().trim().length() > 0) {
-                    sendAnnouncement(charSequence.toString());
-                }
-            }
-        }
+//        if(event.getEventType() == AccessibilityEvent.TYPE_ANNOUNCEMENT) {
+//           List<CharSequence> list = event.getText();
+//            for(CharSequence charSequence : list) {
+//                if(charSequence.toString().trim().length() > 0) {
+//                    sendAnnouncement(charSequence.toString());
+//                }
+//            }
+//        }
 //        if(event.getEventType() == AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED) {
 //            try {
 //                AccessibilityNodeInfo info = event.getSource();
@@ -299,11 +299,10 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             // Check if the intent can be resolved (skip for COMPONENT type as it might not be in manifest)
             if (!launchType.equalsIgnoreCase("COMPONENT")) {
                 PackageManager pm = getPackageManager();
-                List<ResolveInfo> resolveInfos = pm.queryIntentActivities(launchIntent, PackageManager.MATCH_DEFAULT_ONLY);
+                List<ResolveInfo> resolveInfos = pm.queryIntentActivities(launchIntent, 0);
 
                 if (resolveInfos.isEmpty()) {
-                    sendLaunchResult(false, "No app found to handle " + launchDescription);
-                    return;
+                    Log.w(LOG_TAG, "No apps found to handle intent, but attempting launch anyway");
                 }
             }
 
