@@ -29,6 +29,7 @@ import com.google.android.accessibility.utils.TreeDebug;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Observable;
 import java.util.Observer;
@@ -636,10 +637,42 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
     }
 
     public void startCapture() {
-        List<AccessibilityWindowInfo> windows = getWindows();
+        try {
+            List<AccessibilityWindowInfo> windows = getWindows();
+            
+            if (windows == null || windows.isEmpty()) {
+                Log.w(LOG_TAG, "No windows available for capture");
+                return;
+            }
 
-        TreeDebug.logNodeTrees(windows, _this);
-        sendTree();
+            // Filter out null windows and windows with null root nodes
+            List<AccessibilityWindowInfo> validWindows = new ArrayList<>();
+            for (AccessibilityWindowInfo window : windows) {
+                if (window != null && window.getRoot() != null) {
+                    validWindows.add(window);
+                }
+            }
+
+            if (validWindows.isEmpty()) {
+                Log.w(LOG_TAG, "No valid windows with root nodes available for capture");
+                return;
+            }
+
+            TreeDebug.logNodeTrees(validWindows, _this);
+            sendTree();
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error during capture: " + e.getMessage(), e);
+            // Send error response to client
+            try {
+                JSONObject errorJson = new JSONObject();
+                errorJson.put("type", "captureError");
+                errorJson.put("message", "Capture failed: " + e.getMessage());
+                sendJSON(errorJson);
+                sendTree();
+            } catch (Exception sendError) {
+                Log.e(LOG_TAG, "Failed to send error response: " + sendError.getMessage());
+            }
+        }
     }
 
     public static byte[] compress(String string) throws IOException {
