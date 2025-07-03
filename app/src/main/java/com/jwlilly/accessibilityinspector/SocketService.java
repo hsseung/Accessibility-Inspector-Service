@@ -96,10 +96,18 @@ public class SocketService extends Service {
         if (action == null) {
             return START_NOT_STICKY;
         } else if (action.equals(BROADCAST_MESSAGE)) {
-            try {
-                requestCallback.BroadcastMessage(decompress(data));
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+            String messageData = intent.getStringExtra("messageData");
+            if (messageData != null) {
+                requestCallback.BroadcastMessage(messageData);
+            } else {
+                // Fallback to static data for backward compatibility (if any exists)
+                if (data != null) {
+                    try {
+                        requestCallback.BroadcastMessage(decompress(data));
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
             }
         }
         return START_NOT_STICKY;
@@ -136,6 +144,10 @@ public class SocketService extends Service {
                         Log.d("SERVER", "Message field: '" + jsonObject.optString("message", "NOT_FOUND") + "'");
 
                         if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("capture")) {
+                            // Cancel any pending stability capture to avoid collision
+                            if (accessibilityServiceInstance != null) {
+                                accessibilityServiceInstance.cancelPendingStabilityCapture();
+                            }
                             Intent intent = new Intent("com.jwlilly.accessibilityinspector");
                             intent.setAction("A11yInspector");
                             sendBroadcast(intent);
@@ -146,6 +158,10 @@ public class SocketService extends Service {
                             webSocket.send(pongObject.toString());
                         }
                         if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("captureNotImportant")) {
+                            // Cancel any pending stability capture to avoid collision
+                            if (accessibilityServiceInstance != null) {
+                                accessibilityServiceInstance.cancelPendingStabilityCapture();
+                            }
                             Intent intent = new Intent("com.jwlilly.accessibilityinspector");
                             intent.setAction("A11yInspectorImportant");
                             sendBroadcast(intent);
