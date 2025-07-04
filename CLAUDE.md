@@ -91,10 +91,12 @@ The service supports two distinct message flows:
 **Tree Data Response:**
 ```json
 {
-  "children": [...],  // TreeDebug format
-  "name": ""
+  "type": "tree",
+  "children": [...]  // TreeDebug format
 }
 ```
+
+*Note: This format change has been tested for backward compatibility with the accompanying Inspector App.*
 
 **Action/Gesture/Launch Results:**
 ```json
@@ -204,3 +206,32 @@ The service continuously monitors for UI changes via `WINDOW_CONTENT_CHANGED` ev
 - Clicking ViewPager tab → Single timestamp + horizontal scroll values
 - User swiping list → Multiple timestamps + zero scroll values
 - App page transitions → Single timestamp + variable scroll values
+
+## Development Tools
+
+### Debug Clients
+
+**debug_client.py**: Primary debugging tool that shows detailed message analysis
+```bash
+python3 debug_client.py
+```
+- Displays message type in header (🎯 ACCESSIBILITY EVENT, 🌳 TREE MESSAGE, etc.)
+- Shows JSON preview (truncated at 1000 characters)
+- Handles both string and byte messages
+
+**quick_test.py**: Simple connectivity test for basic functionality
+```bash
+python3 quick_test.py
+```
+- Minimal output showing message types and sizes
+- Good for quick connection verification
+- Lighter output for basic testing
+
+**Connection Setup:**
+```bash
+# Forward port from Android device
+adb forward tcp:38301 tcp:38301
+
+# Then run either debug client
+python3 debug_client.py
+```

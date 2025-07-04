@@ -673,9 +673,11 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     public void sendTree() {
         try {
-            jsonObject.put("name", "");
+            JSONObject treeResponse = new JSONObject();
+            treeResponse.put("type", "tree");
+            treeResponse.put("children", jsonObject.getJSONArray("children"));
             Intent announcementIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-            announcementIntent.putExtra("messageData", jsonObject.toString());
+            announcementIntent.putExtra("messageData", treeResponse.toString());
             startService(announcementIntent);
             Log.d(LOG_TAG, "message sent");
         } catch (Exception e) {
