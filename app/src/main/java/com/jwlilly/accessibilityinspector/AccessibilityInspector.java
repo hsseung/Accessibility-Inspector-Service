@@ -28,14 +28,13 @@ import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import com.google.android.accessibility.utils.TreeDebug;
 import org.json.JSONObject;
 import org.json.JSONArray;
-import java.io.ByteArrayOutputStream;
+import org.json.JSONException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Observable;
 import java.util.Observer;
 import java.util.concurrent.Executor;
-import java.util.zip.GZIPOutputStream;
 
 
 public class AccessibilityInspector extends AccessibilityService implements Observer {
@@ -576,6 +575,220 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         return null;
     }
 
+    // Method to find nodes by view ID and return their information
+    public void findByViewId(String viewId) {
+        try {
+            List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
+            List<AccessibilityWindowInfo> windows = getWindows();
+
+            Log.d(LOG_TAG, "findByViewId: searching for '" + viewId + "' in " + windows.size() + " windows");
+
+            // Use the native findAccessibilityNodeInfosByViewId method
+            for (int i = 0; i < windows.size(); i++) {
+                AccessibilityWindowInfo window = windows.get(i);
+                if (window != null) {
+                    Log.d(LOG_TAG, "Window " + i + ": type=" + window.getType() + 
+                          ", isActive=" + window.isActive() + 
+                          ", hasRoot=" + (window.getRoot() != null));
+                    
+                    AccessibilityNodeInfo rootNode = window.getRoot();
+                    if (rootNode != null) {
+                        List<AccessibilityNodeInfo> nodesInWindow = rootNode.findAccessibilityNodeInfosByViewId(viewId);
+                        if (nodesInWindow != null && !nodesInWindow.isEmpty()) {
+                            Log.d(LOG_TAG, "Found " + nodesInWindow.size() + " nodes in window " + i + " (type=" + window.getType() + ")");
+                            foundNodes.addAll(nodesInWindow);
+                        }
+                    }
+                }
+            }
+
+            // Build response with found nodes
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", true);
+            resultJson.put("viewId", viewId);
+            resultJson.put("count", foundNodes.size());
+
+            JSONArray nodesArray = new JSONArray();
+            for (AccessibilityNodeInfo node : foundNodes) {
+                JSONObject nodeInfo = createNodeInfoJson(node);
+                nodesArray.put(nodeInfo);
+            }
+            resultJson.put("nodes", nodesArray);
+
+            // Send result
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+            
+            Log.d(LOG_TAG, "Found " + foundNodes.size() + " nodes with viewId: " + viewId);
+
+        } catch (Exception e) {
+            String errorMessage = "Error finding nodes by viewId: " + e.getMessage();
+            Log.e(LOG_TAG, errorMessage, e);
+            sendFindByViewIdResult(false, errorMessage);
+        }
+    }
+
+    // Method to find nodes by text and return their information
+    public void findByText(String text) {
+        try {
+            List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
+            List<AccessibilityWindowInfo> windows = getWindows();
+
+            Log.d(LOG_TAG, "findByText: Starting search for '" + text + "' across " + windows.size() + " windows");
+
+            // Use the native findAccessibilityNodeInfosByText method
+            for (int i = 0; i < windows.size(); i++) {
+                AccessibilityWindowInfo window = windows.get(i);
+                AccessibilityNodeInfo rootNode = window.getRoot();
+                
+                Log.d(LOG_TAG, "findByText: Window " + i + " - Title: " + window.getTitle() + 
+                      ", Type: " + window.getType() + ", Active: " + window.isActive() + 
+                      ", Root null: " + (rootNode == null));
+                
+                if (rootNode != null) {
+                    // Debug: check root node properties
+                    Log.d(LOG_TAG, "findByText: Window " + i + " root - class: " + rootNode.getClassName() + 
+                          ", childCount: " + rootNode.getChildCount() + 
+                          ", text: '" + rootNode.getText() + "'");
+                    
+                    // Test if the native method works at all
+                    List<AccessibilityNodeInfo> nodesInWindow = rootNode.findAccessibilityNodeInfosByText(text);
+                    int windowNodeCount = (nodesInWindow != null) ? nodesInWindow.size() : 0;
+                    
+                    Log.d(LOG_TAG, "findByText: Window " + i + " found " + windowNodeCount + " nodes");
+                    
+                    // Debug: also try searching for a very common character that should exist
+                    if (i == 3 && windowNodeCount == 0) { // Only for main Slack window
+                        Log.d(LOG_TAG, "findByText: DEBUG - Testing if native method works at all on Slack window");
+                        List<AccessibilityNodeInfo> testNodes = rootNode.findAccessibilityNodeInfosByText("a");
+                        Log.d(LOG_TAG, "findByText: DEBUG - Native method found " + 
+                              ((testNodes != null) ? testNodes.size() : 0) + " nodes for 'a'");
+                        
+                        // Also test our custom method on the same root
+                        List<AccessibilityNodeInfo> customTestNodes = CustomNodeFinder.findNodesByText(rootNode, "Activity");
+                        Log.d(LOG_TAG, "findByText: DEBUG - Custom method found " + customTestNodes.size() + " nodes for 'Activity'");
+                    }
+                    
+                    if (nodesInWindow != null && !nodesInWindow.isEmpty()) {
+                        foundNodes.addAll(nodesInWindow);
+                        
+                        // Log first few nodes found in this window
+                        for (int j = 0; j < Math.min(3, nodesInWindow.size()); j++) {
+                            AccessibilityNodeInfo node = nodesInWindow.get(j);
+                            Log.d(LOG_TAG, "findByText: Window " + i + " node " + j + " - " + 
+                                  node.getClassName() + " text:'" + node.getText() + 
+                                  "' desc:'" + node.getContentDescription() + "'");
+                        }
+                    }
+                }
+            }
+
+            // Build response with found nodes
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", true);
+            resultJson.put("text", text);
+            resultJson.put("count", foundNodes.size());
+
+            JSONArray nodesArray = new JSONArray();
+            for (AccessibilityNodeInfo node : foundNodes) {
+                JSONObject nodeInfo = createNodeInfoJson(node);
+                nodesArray.put(nodeInfo);
+            }
+            resultJson.put("nodes", nodesArray);
+
+            // Send result
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+            
+            Log.d(LOG_TAG, "Found " + foundNodes.size() + " nodes with text: " + text);
+
+        } catch (Exception e) {
+            String errorMessage = "Error finding nodes by text: " + e.getMessage();
+            Log.e(LOG_TAG, errorMessage, e);
+            sendFindByTextResult(false, errorMessage);
+        }
+    }
+
+    // Helper method to create node info JSON
+    private JSONObject createNodeInfoJson(AccessibilityNodeInfo node) throws JSONException {
+        JSONObject nodeInfo = new JSONObject();
+        
+        // Basic properties
+        nodeInfo.put("hashCode", node.hashCode());
+        nodeInfo.put("className", node.getClassName() != null ? node.getClassName().toString() : "");
+        nodeInfo.put("text", node.getText() != null ? node.getText().toString() : "");
+        nodeInfo.put("contentDescription", node.getContentDescription() != null ? node.getContentDescription().toString() : "");
+        nodeInfo.put("viewIdResourceName", node.getViewIdResourceName() != null ? node.getViewIdResourceName() : "");
+        
+        // Parent hashCode
+        AccessibilityNodeInfo parent = node.getParent();
+        if (parent != null) {
+            nodeInfo.put("parentHashCode", parent.hashCode());
+            parent.recycle(); // Important: recycle the parent node after use
+        } else {
+            nodeInfo.put("parentHashCode", null);
+        }
+        
+        // State properties
+        nodeInfo.put("isClickable", node.isClickable());
+        nodeInfo.put("isEnabled", node.isEnabled());
+        nodeInfo.put("isFocusable", node.isFocusable());
+        nodeInfo.put("isFocused", node.isFocused());
+        nodeInfo.put("isScrollable", node.isScrollable());
+        nodeInfo.put("isCheckable", node.isCheckable());
+        nodeInfo.put("isChecked", node.isChecked());
+        nodeInfo.put("isSelected", node.isSelected());
+        
+        // Bounds
+        android.graphics.Rect bounds = new android.graphics.Rect();
+        node.getBoundsInScreen(bounds);
+        JSONObject boundsJson = new JSONObject();
+        boundsJson.put("left", bounds.left);
+        boundsJson.put("top", bounds.top);
+        boundsJson.put("right", bounds.right);
+        boundsJson.put("bottom", bounds.bottom);
+        nodeInfo.put("boundsInScreen", boundsJson);
+        
+        return nodeInfo;
+    }
+
+
+    // Send error result for find commands
+    private void sendFindByViewIdResult(boolean success, String message) {
+        try {
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", success);
+            resultJson.put("message", message);
+
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error sending findByViewId result: " + e.getMessage());
+        }
+    }
+
+    // Send error result for find commands
+    private void sendFindByTextResult(boolean success, String message) {
+        try {
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", success);
+            resultJson.put("message", message);
+
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error sending findByText result: " + e.getMessage());
+        }
+    }
+
     // Recursive helper method to search through the node tree by resource ID
     private AccessibilityNodeInfo findNodeByResourceIdRecursive(AccessibilityNodeInfo node, String resourceId) {
         if (node == null) return null;
@@ -694,6 +907,201 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             Log.d(LOG_TAG, "announcement sent");
         } catch (Exception e) {
             Log.e(LOG_TAG,e.getMessage());
+        }
+    }
+
+    // Custom recursive find by text (for comparison with native method)
+    public void customFindByText(String text) {
+        try {
+            List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
+            List<AccessibilityWindowInfo> windows = getWindows();
+
+            // Use custom recursive search
+            for (AccessibilityWindowInfo window : windows) {
+                AccessibilityNodeInfo rootNode = window.getRoot();
+                if (rootNode != null) {
+                    List<AccessibilityNodeInfo> nodesInWindow = CustomNodeFinder.findNodesByText(rootNode, text);
+                    if (nodesInWindow != null && !nodesInWindow.isEmpty()) {
+                        foundNodes.addAll(nodesInWindow);
+                    }
+                }
+            }
+            
+            // Get tree stats for debugging
+            StringBuilder statsBuilder = new StringBuilder();
+            for (AccessibilityWindowInfo window : windows) {
+                AccessibilityNodeInfo rootNode = window.getRoot();
+                if (rootNode != null) {
+                    statsBuilder.append("Window: ").append(window.getTitle()).append(" - ");
+                    statsBuilder.append(CustomNodeFinder.getTreeStats(rootNode)).append("; ");
+                }
+            }
+            
+            // Build response with found nodes
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", true);
+            resultJson.put("method", "customFindByText");
+            resultJson.put("text", text);
+            resultJson.put("count", foundNodes.size());
+            resultJson.put("stats", statsBuilder.toString());
+            
+            JSONArray nodesArray = new JSONArray();
+            for (AccessibilityNodeInfo node : foundNodes) {
+                nodesArray.put(createNodeInfoJson(node));
+            }
+            resultJson.put("nodes", nodesArray);
+            
+            // Send result
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+            
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error in customFindByText: " + e.getMessage());
+            sendCustomFindResult(false, "customFindByText", e.getMessage());
+        }
+    }
+
+    // Custom recursive find by viewId (for comparison with native method)
+    public void customFindByViewId(String viewId) {
+        try {
+            List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
+            List<AccessibilityWindowInfo> windows = getWindows();
+
+            // Use custom recursive search
+            for (AccessibilityWindowInfo window : windows) {
+                AccessibilityNodeInfo rootNode = window.getRoot();
+                if (rootNode != null) {
+                    List<AccessibilityNodeInfo> nodesInWindow = CustomNodeFinder.findNodesByViewId(rootNode, viewId);
+                    if (nodesInWindow != null && !nodesInWindow.isEmpty()) {
+                        foundNodes.addAll(nodesInWindow);
+                    }
+                }
+            }
+            
+            // Build response with found nodes
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", true);
+            resultJson.put("method", "customFindByViewId");
+            resultJson.put("viewId", viewId);
+            resultJson.put("count", foundNodes.size());
+            
+            JSONArray nodesArray = new JSONArray();
+            for (AccessibilityNodeInfo node : foundNodes) {
+                nodesArray.put(createNodeInfoJson(node));
+            }
+            resultJson.put("nodes", nodesArray);
+            
+            // Send result
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+            
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error in customFindByViewId: " + e.getMessage());
+            sendCustomFindResult(false, "customFindByViewId", e.getMessage());
+        }
+    }
+
+    // Custom regex find by text pattern
+    public void findByRegex(String regexPattern) {
+        try {
+            List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
+            List<AccessibilityWindowInfo> windows = getWindows();
+
+            // Use custom regex search
+            for (AccessibilityWindowInfo window : windows) {
+                AccessibilityNodeInfo rootNode = window.getRoot();
+                if (rootNode != null) {
+                    List<AccessibilityNodeInfo> nodesInWindow = CustomNodeFinder.findNodesByRegex(rootNode, regexPattern);
+                    if (nodesInWindow != null && !nodesInWindow.isEmpty()) {
+                        foundNodes.addAll(nodesInWindow);
+                    }
+                }
+            }
+            
+            // Build response with found nodes
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", true);
+            resultJson.put("method", "findByRegex");
+            resultJson.put("pattern", regexPattern);
+            resultJson.put("count", foundNodes.size());
+            
+            JSONArray nodesArray = new JSONArray();
+            for (AccessibilityNodeInfo node : foundNodes) {
+                nodesArray.put(createNodeInfoJson(node));
+            }
+            resultJson.put("nodes", nodesArray);
+            
+            // Send result
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+            
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error in findByRegex: " + e.getMessage());
+            sendCustomFindResult(false, "findByRegex", e.getMessage());
+        }
+    }
+
+    public void findByProps(JSONObject properties) {
+        try {
+            List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
+            List<AccessibilityWindowInfo> windows = getWindows();
+
+            // Use custom properties search
+            for (AccessibilityWindowInfo window : windows) {
+                AccessibilityNodeInfo rootNode = window.getRoot();
+                if (rootNode != null) {
+                    List<AccessibilityNodeInfo> nodesInWindow = CustomNodeFinder.findNodesByProps(rootNode, properties);
+                    if (nodesInWindow != null && !nodesInWindow.isEmpty()) {
+                        foundNodes.addAll(nodesInWindow);
+                    }
+                }
+            }
+            
+            // Build response with found nodes
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", true);
+            resultJson.put("method", "findByProps");
+            resultJson.put("properties", properties);
+            resultJson.put("count", foundNodes.size());
+            
+            JSONArray nodesArray = new JSONArray();
+            for (AccessibilityNodeInfo node : foundNodes) {
+                nodesArray.put(createNodeInfoJson(node));
+            }
+            resultJson.put("nodes", nodesArray);
+            
+            // Send result
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+            
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error in findByProps: " + e.getMessage());
+            sendCustomFindResult(false, "findByProps", e.getMessage());
+        }
+    }
+
+    // Send error result for custom find commands
+    private void sendCustomFindResult(boolean success, String method, String message) {
+        try {
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("type", "findResult");
+            resultJson.put("success", success);
+            resultJson.put("method", method);
+            resultJson.put("message", message);
+
+            Intent resultIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            resultIntent.putExtra("messageData", resultJson.toString());
+            startService(resultIntent);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error sending custom find result: " + e.getMessage());
         }
     }
 
@@ -856,7 +1264,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             JSONObject eventJson = createBaseEventJson(event);
 
             Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-            eventIntent.putExtra("messageData", compress(eventJson.toString()));
+            eventIntent.putExtra("messageData", eventJson.toString());
             startService(eventIntent);
             Log.d(LOG_TAG, "Window state change event sent");
         } catch (Exception e) {
@@ -1013,7 +1421,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             }
 
             Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-            eventIntent.putExtra("messageData", compress(eventJson.toString()));
+            eventIntent.putExtra("messageData", eventJson.toString());
             startService(eventIntent);
             Log.d(LOG_TAG, "Accessibility event with tree sent: " + getEventTypeName(event.getEventType()));
         } catch (Exception e) {
@@ -1175,7 +1583,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             }
 
             Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-            eventIntent.putExtra("messageData", compress(eventJson.toString()));
+            eventIntent.putExtra("messageData", eventJson.toString());
             startService(eventIntent);
             Log.d(LOG_TAG, "Scroll sequence ended - X: " + totalScrollX + ", Y: " + totalScrollY + ", Events: " + scrollEventCount);
             
@@ -1286,7 +1694,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             }
 
             Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-            eventIntent.putExtra("messageData", compress(eventJson.toString()));
+            eventIntent.putExtra("messageData", eventJson.toString());
             startService(eventIntent);
             Log.d(LOG_TAG, "Text session ended - Text: '" + sessionText.toString() + "', Events: " + textEventCount);
             
@@ -1361,13 +1769,27 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
                 return;
             }
 
+            Log.d(LOG_TAG, "Total windows found: " + windows.size());
+
             // Filter out null windows and windows with null root nodes
             List<AccessibilityWindowInfo> validWindows = new ArrayList<>();
             for (AccessibilityWindowInfo window : windows) {
-                if (window != null && window.getRoot() != null) {
-                    validWindows.add(window);
+                if (window != null) {
+                    // Log window details
+                    Log.d(LOG_TAG, "Window type: " + window.getType() + 
+                          ", isActive: " + window.isActive() + 
+                          ", isFocused: " + window.isFocused() + 
+                          ", hasRoot: " + (window.getRoot() != null));
+                    
+                    if (window.getRoot() != null) {
+                        validWindows.add(window);
+                    }
+                } else {
+                    Log.w(LOG_TAG, "Found null window");
                 }
             }
+
+            Log.d(LOG_TAG, "Valid windows for capture: " + validWindows.size());
 
             if (validWindows.isEmpty()) {
                 Log.w(LOG_TAG, "No valid windows with root nodes available for capture");
@@ -1391,15 +1813,6 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         }
     }
 
-    public static byte[] compress(String string) throws IOException {
-        ByteArrayOutputStream os = new ByteArrayOutputStream(string.length());
-        GZIPOutputStream gos = new GZIPOutputStream(os);
-        gos.write(string.getBytes());
-        gos.close();
-        byte[] compressed = os.toByteArray();
-        os.close();
-        return compressed;
-    }
 
     // Method to perform gesture actions using coordinates
     public void performGesture(String gestureType, float x, float y, float endX, float endY, int duration) {

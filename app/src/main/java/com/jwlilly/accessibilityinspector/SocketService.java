@@ -21,10 +21,7 @@ import com.koushikdutta.async.http.server.AsyncHttpServerRequest;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.zip.GZIPInputStream;
 
 public class SocketService extends Service {
     AsyncHttpServer server;
@@ -35,8 +32,6 @@ public class SocketService extends Service {
 
     private final String CHANNEL_ID = "AccessibilityInspectorChannel";
     public static String BROADCAST_MESSAGE = "broadcast";
-
-    public static byte[] data;
 
     // Static reference to accessibility service instance
     private static AccessibilityInspector accessibilityServiceInstance;
@@ -99,15 +94,6 @@ public class SocketService extends Service {
             String messageData = intent.getStringExtra("messageData");
             if (messageData != null) {
                 requestCallback.BroadcastMessage(messageData);
-            } else {
-                // Fallback to static data for backward compatibility (if any exists)
-                if (data != null) {
-                    try {
-                        requestCallback.BroadcastMessage(decompress(data));
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                }
             }
         }
         return START_NOT_STICKY;
@@ -290,6 +276,174 @@ public class SocketService extends Service {
                                 Log.d("SERVER", "Message does not match performGesture: '" + messageValue + "'");
                             }
                         }
+
+                        // Handle findByRegex (custom regex implementation)
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("findByRegex")) {
+                            Log.d("SERVER", "Processing findByRegex request");
+                            
+                            if (accessibilityServiceInstance != null) {
+                                String pattern = jsonObject.optString("pattern", null);
+                                
+                                if (pattern != null && !pattern.isEmpty()) {
+                                    // Direct method call to regex implementation
+                                    accessibilityServiceInstance.findByRegex(pattern);
+                                } else {
+                                    Log.w("SERVER", "Missing pattern parameter");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "findResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: pattern");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.e("SERVER", "AccessibilityInspector instance not available");
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "findResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Accessibility service not available");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
+
+                        // Handle findByViewId
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("findByViewId")) {
+                            Log.d("SERVER", "Processing findByViewId request");
+                            
+                            if (accessibilityServiceInstance != null) {
+                                String viewId = jsonObject.optString("viewId", null);
+                                
+                                if (viewId != null && !viewId.isEmpty()) {
+                                    // Direct method call
+                                    accessibilityServiceInstance.findByViewId(viewId);
+                                } else {
+                                    Log.w("SERVER", "Missing viewId parameter");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "findResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: viewId");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.e("SERVER", "AccessibilityInspector instance not available");
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "findResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Accessibility service not available");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
+
+                        // Handle findByText
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("findByText")) {
+                            Log.d("SERVER", "Processing findByText request");
+                            
+                            if (accessibilityServiceInstance != null) {
+                                String text = jsonObject.optString("text", null);
+                                
+                                if (text != null && !text.isEmpty()) {
+                                    // Direct method call
+                                    accessibilityServiceInstance.findByText(text);
+                                } else {
+                                    Log.w("SERVER", "Missing text parameter");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "findResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: text");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.e("SERVER", "AccessibilityInspector instance not available");
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "findResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Accessibility service not available");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
+
+                        // Handle customFindByText (custom recursive implementation)
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("customFindByText")) {
+                            Log.d("SERVER", "Processing customFindByText request");
+                            
+                            if (accessibilityServiceInstance != null) {
+                                String text = jsonObject.optString("text", null);
+                                
+                                if (text != null && !text.isEmpty()) {
+                                    // Direct method call to custom implementation
+                                    accessibilityServiceInstance.customFindByText(text);
+                                } else {
+                                    Log.w("SERVER", "Missing text parameter");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "findResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: text");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.e("SERVER", "AccessibilityInspector instance not available");
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "findResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Accessibility service not available");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
+
+                        // Handle customFindByViewId (custom recursive implementation)
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("customFindByViewId")) {
+                            Log.d("SERVER", "Processing customFindByViewId request");
+                            
+                            if (accessibilityServiceInstance != null) {
+                                String viewId = jsonObject.optString("viewId", null);
+                                
+                                if (viewId != null && !viewId.isEmpty()) {
+                                    // Direct method call to custom implementation
+                                    accessibilityServiceInstance.customFindByViewId(viewId);
+                                } else {
+                                    Log.w("SERVER", "Missing viewId parameter");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "findResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: viewId");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.e("SERVER", "AccessibilityInspector instance not available");
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "findResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Accessibility service not available");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
+
+                        // Handle findByProps (property-based search)
+                        if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("findByProps")) {
+                            Log.d("SERVER", "Processing findByProps request");
+                            
+                            if (accessibilityServiceInstance != null) {
+                                JSONObject properties = jsonObject.optJSONObject("properties");
+                                
+                                if (properties != null) {
+                                    // Direct method call to properties implementation
+                                    accessibilityServiceInstance.findByProps(properties);
+                                } else {
+                                    Log.w("SERVER", "Missing properties parameter");
+                                    JSONObject errorResponse = new JSONObject();
+                                    errorResponse.put("type", "findResult");
+                                    errorResponse.put("success", false);
+                                    errorResponse.put("message", "Missing required parameter: properties");
+                                    webSocket.send(errorResponse.toString());
+                                }
+                            } else {
+                                Log.e("SERVER", "AccessibilityInspector instance not available");
+                                JSONObject errorResponse = new JSONObject();
+                                errorResponse.put("type", "findResult");
+                                errorResponse.put("success", false);
+                                errorResponse.put("message", "Accessibility service not available");
+                                webSocket.send(errorResponse.toString());
+                            }
+                        }
                     } catch(JSONException e) {
                         Log.d("ERROR", e.getMessage());
                         try {
@@ -322,20 +476,6 @@ public class SocketService extends Service {
             for (WebSocket socket : _sockets)
                 socket.send(message);
         }
-    }
-    public static String decompress(byte[] compressed) throws IOException {
-        final int BUFFER_SIZE = 32;
-        ByteArrayInputStream is = new ByteArrayInputStream(compressed);
-        GZIPInputStream gis = new GZIPInputStream(is, BUFFER_SIZE);
-        StringBuilder string = new StringBuilder();
-        byte[] data = new byte[BUFFER_SIZE];
-        int bytesRead;
-        while ((bytesRead = gis.read(data)) != -1) {
-            string.append(new String(data, 0, bytesRead));
-        }
-        gis.close();
-        is.close();
-        return string.toString();
     }
 
 }
