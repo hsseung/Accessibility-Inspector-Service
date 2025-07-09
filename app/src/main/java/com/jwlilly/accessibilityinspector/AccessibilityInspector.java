@@ -577,6 +577,10 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     // Method to find nodes by view ID and return their information
     public void findByViewId(String viewId) {
+        findByViewId(viewId, false);
+    }
+    
+    public void findByViewId(String viewId, boolean verbose) {
         try {
             List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
             List<AccessibilityWindowInfo> windows = getWindows();
@@ -611,7 +615,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
             JSONArray nodesArray = new JSONArray();
             for (AccessibilityNodeInfo node : foundNodes) {
-                JSONObject nodeInfo = createNodeInfoJson(node);
+                JSONObject nodeInfo = createNodeInfoJson(node, verbose);
                 nodesArray.put(nodeInfo);
             }
             resultJson.put("nodes", nodesArray);
@@ -632,6 +636,10 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     // Method to find nodes by text and return their information
     public void findByText(String text) {
+        findByText(text, false);
+    }
+    
+    public void findByText(String text, boolean verbose) {
         try {
             List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
             List<AccessibilityWindowInfo> windows = getWindows();
@@ -694,7 +702,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
             JSONArray nodesArray = new JSONArray();
             for (AccessibilityNodeInfo node : foundNodes) {
-                JSONObject nodeInfo = createNodeInfoJson(node);
+                JSONObject nodeInfo = createNodeInfoJson(node, verbose);
                 nodesArray.put(nodeInfo);
             }
             resultJson.put("nodes", nodesArray);
@@ -715,6 +723,11 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     // Helper method to create node info JSON
     private JSONObject createNodeInfoJson(AccessibilityNodeInfo node) throws JSONException {
+        return createNodeInfoJson(node, false);
+    }
+    
+    // Helper method to create node info JSON with verbose option
+    private JSONObject createNodeInfoJson(AccessibilityNodeInfo node, boolean verbose) throws JSONException {
         JSONObject nodeInfo = new JSONObject();
         
         // Basic properties
@@ -752,6 +765,78 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         boundsJson.put("right", bounds.right);
         boundsJson.put("bottom", bounds.bottom);
         nodeInfo.put("boundsInScreen", boundsJson);
+        
+        // Verbose properties - only included when verbose flag is true
+        if (verbose) {
+            // Additional text properties
+            if (node.getHintText() != null) {
+                nodeInfo.put("hintText", node.getHintText().toString());
+            }
+            if (node.getError() != null) {
+                nodeInfo.put("errorText", node.getError().toString());
+            }
+            // These methods are available since API 28 (our minSdk)
+            if (node.getTooltipText() != null) {
+                nodeInfo.put("tooltipText", node.getTooltipText().toString());
+            }
+            if (node.getPaneTitle() != null) {
+                nodeInfo.put("paneTitle", node.getPaneTitle().toString());
+            }
+            // Note: getStateDescription (API 30) and getRoleDescription (API 29) 
+            // are not available when compiling with certain build configurations
+            // even though compileSdk is 31. These would need reflection to access.
+            
+            // Reference properties
+            AccessibilityNodeInfo labeledBy = node.getLabeledBy();
+            if (labeledBy != null) {
+                nodeInfo.put("labeledByHashCode", labeledBy.hashCode());
+                labeledBy.recycle();
+            }
+            
+            // Additional state properties
+            nodeInfo.put("isLongClickable", node.isLongClickable());
+            nodeInfo.put("isVisibleToUser", node.isVisibleToUser());
+            nodeInfo.put("isImportantForAccessibility", node.isImportantForAccessibility());
+            nodeInfo.put("isContentInvalid", node.isContentInvalid());
+            nodeInfo.put("isScreenReaderFocusable", node.isScreenReaderFocusable());
+            
+            // Collection properties
+            AccessibilityNodeInfo.CollectionInfo collectionInfo = node.getCollectionInfo();
+            if (collectionInfo != null) {
+                JSONObject collectionJson = new JSONObject();
+                collectionJson.put("rowCount", collectionInfo.getRowCount());
+                collectionJson.put("columnCount", collectionInfo.getColumnCount());
+                nodeInfo.put("collectionInfo", collectionJson);
+            }
+            
+            AccessibilityNodeInfo.CollectionItemInfo collectionItemInfo = node.getCollectionItemInfo();
+            if (collectionItemInfo != null) {
+                JSONObject itemJson = new JSONObject();
+                itemJson.put("rowIndex", collectionItemInfo.getRowIndex());
+                itemJson.put("columnIndex", collectionItemInfo.getColumnIndex());
+                itemJson.put("rowSpan", collectionItemInfo.getRowSpan());
+                itemJson.put("columnSpan", collectionItemInfo.getColumnSpan());
+                nodeInfo.put("collectionItemInfo", itemJson);
+            }
+            
+            // Action list
+            JSONArray actions = new JSONArray();
+            for (AccessibilityNodeInfo.AccessibilityAction action : node.getActionList()) {
+                JSONObject actionJson = new JSONObject();
+                actionJson.put("id", action.getId());
+                if (action.getLabel() != null) {
+                    actionJson.put("label", action.getLabel().toString());
+                }
+                actions.put(actionJson);
+            }
+            if (actions.length() > 0) {
+                nodeInfo.put("actionList", actions);
+            }
+            
+            // Other properties
+            nodeInfo.put("windowId", node.getWindowId());
+            nodeInfo.put("childCount", node.getChildCount());
+        }
         
         return nodeInfo;
     }
@@ -912,6 +997,10 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     // Custom recursive find by text (for comparison with native method)
     public void customFindByText(String text) {
+        customFindByText(text, false);
+    }
+    
+    public void customFindByText(String text, boolean verbose) {
         try {
             List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
             List<AccessibilityWindowInfo> windows = getWindows();
@@ -948,7 +1037,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             
             JSONArray nodesArray = new JSONArray();
             for (AccessibilityNodeInfo node : foundNodes) {
-                nodesArray.put(createNodeInfoJson(node));
+                nodesArray.put(createNodeInfoJson(node, verbose));
             }
             resultJson.put("nodes", nodesArray);
             
@@ -965,6 +1054,10 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     // Custom recursive find by viewId (for comparison with native method)
     public void customFindByViewId(String viewId) {
+        customFindByViewId(viewId, false);
+    }
+    
+    public void customFindByViewId(String viewId, boolean verbose) {
         try {
             List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
             List<AccessibilityWindowInfo> windows = getWindows();
@@ -990,7 +1083,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             
             JSONArray nodesArray = new JSONArray();
             for (AccessibilityNodeInfo node : foundNodes) {
-                nodesArray.put(createNodeInfoJson(node));
+                nodesArray.put(createNodeInfoJson(node, verbose));
             }
             resultJson.put("nodes", nodesArray);
             
@@ -1007,6 +1100,10 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
 
     // Custom regex find by text pattern
     public void findByRegex(String regexPattern) {
+        findByRegex(regexPattern, false);
+    }
+    
+    public void findByRegex(String regexPattern, boolean verbose) {
         try {
             List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
             List<AccessibilityWindowInfo> windows = getWindows();
@@ -1032,7 +1129,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             
             JSONArray nodesArray = new JSONArray();
             for (AccessibilityNodeInfo node : foundNodes) {
-                nodesArray.put(createNodeInfoJson(node));
+                nodesArray.put(createNodeInfoJson(node, verbose));
             }
             resultJson.put("nodes", nodesArray);
             
@@ -1048,6 +1145,10 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
     }
 
     public void findByProps(JSONObject properties) {
+        findByProps(properties, false);
+    }
+    
+    public void findByProps(JSONObject properties, boolean verbose) {
         try {
             List<AccessibilityNodeInfo> foundNodes = new ArrayList<>();
             List<AccessibilityWindowInfo> windows = getWindows();
@@ -1073,7 +1174,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             
             JSONArray nodesArray = new JSONArray();
             for (AccessibilityNodeInfo node : foundNodes) {
-                nodesArray.put(createNodeInfoJson(node));
+                nodesArray.put(createNodeInfoJson(node, verbose));
             }
             resultJson.put("nodes", nodesArray);
             

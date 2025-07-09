@@ -90,6 +90,12 @@ The service supports two distinct message flows:
 {"message":"findByRegex", "pattern":".*Submit.*"}      // Regex pattern matching
 {"message":"customFindByViewId", "viewId":"..."}       // Alternative viewId search
 {"message":"findByProps", "properties":{"text":"Submit","isClickable":true}} // Property-based search
+
+// All find methods support optional verbose flag for additional node properties:
+{"message":"findByViewId", "viewId":"com.example:id/button", "verbose":true}
+{"message":"customFindByText", "text":"Submit", "verbose":true}
+{"message":"findByRegex", "pattern":"[0-9]+", "verbose":true}
+{"message":"findByProps", "properties":{"isClickable":true}, "verbose":true}
 ```
 
 #### Response Messages
@@ -194,6 +200,45 @@ The service supports two distinct message flows:
 - Simplified structure for easier processing
 
 Tree nodes use the TreeDebug format with nested metadata objects.
+
+### **Verbose Mode for Find Methods**
+
+All find methods support an optional `verbose` flag (defaults to `false`). When `verbose: true`, additional properties are included:
+
+**Basic properties** (always included):
+- `hashCode`, `parentHashCode`, `className`, `text`, `contentDescription`, `viewIdResourceName`
+- State: `isClickable`, `isEnabled`, `isFocusable`, `isFocused`, `isScrollable`, `isCheckable`, `isChecked`, `isSelected`
+- `boundsInScreen` (object with left, top, right, bottom)
+
+**Verbose properties** (only with `verbose: true`):
+- **Text properties**: `hintText`, `errorText`, `tooltipText`, `paneTitle`
+- **Reference properties**: `labeledByHashCode` (hashCode of the node that labels this one)
+- **Additional states**: `isLongClickable`, `isVisibleToUser`, `isImportantForAccessibility`, `isContentInvalid`, `isScreenReaderFocusable`
+- **Collection properties**: 
+  - `collectionInfo`: {rowCount, columnCount} for grids/lists
+  - `collectionItemInfo`: {rowIndex, columnIndex, rowSpan, columnSpan} for items in collections
+- **Action list**: Array of available actions with format: [{id: number, label: string}, ...]
+- **Other properties**: `windowId`, `childCount`
+
+**Note**: Properties requiring API > 28 (`stateDescription`, `roleDescription`) are not currently available due to build configuration constraints.
+
+**Example verbose response**:
+```json
+{
+  "hashCode": 123456,
+  "parentHashCode": 789012,
+  "className": "android.widget.Button",
+  "text": "Submit",
+  // ... basic properties ...
+  "hintText": "Tap to submit form",
+  "isVisibleToUser": true,
+  "isLongClickable": false,
+  "actionList": [
+    {"id": 16, "label": null},  // ACTION_CLICK
+    {"id": 1, "label": null}    // ACTION_FOCUS
+  ],
+  "childCount": 0
+}
 
 ## **Find Method Comparison**
 

@@ -285,8 +285,9 @@ public class SocketService extends Service {
                                 String pattern = jsonObject.optString("pattern", null);
                                 
                                 if (pattern != null && !pattern.isEmpty()) {
+                                    boolean verbose = jsonObject.optBoolean("verbose", false);
                                     // Direct method call to regex implementation
-                                    accessibilityServiceInstance.findByRegex(pattern);
+                                    accessibilityServiceInstance.findByRegex(pattern, verbose);
                                 } else {
                                     Log.w("SERVER", "Missing pattern parameter");
                                     JSONObject errorResponse = new JSONObject();
@@ -313,8 +314,9 @@ public class SocketService extends Service {
                                 String viewId = jsonObject.optString("viewId", null);
                                 
                                 if (viewId != null && !viewId.isEmpty()) {
+                                    boolean verbose = jsonObject.optBoolean("verbose", false);
                                     // Direct method call
-                                    accessibilityServiceInstance.findByViewId(viewId);
+                                    accessibilityServiceInstance.findByViewId(viewId, verbose);
                                 } else {
                                     Log.w("SERVER", "Missing viewId parameter");
                                     JSONObject errorResponse = new JSONObject();
@@ -339,10 +341,11 @@ public class SocketService extends Service {
                             
                             if (accessibilityServiceInstance != null) {
                                 String text = jsonObject.optString("text", null);
+                                boolean verbose = jsonObject.optBoolean("verbose", false);
                                 
                                 if (text != null && !text.isEmpty()) {
                                     // Direct method call
-                                    accessibilityServiceInstance.findByText(text);
+                                    accessibilityServiceInstance.findByText(text, verbose);
                                 } else {
                                     Log.w("SERVER", "Missing text parameter");
                                     JSONObject errorResponse = new JSONObject();
@@ -369,8 +372,9 @@ public class SocketService extends Service {
                                 String text = jsonObject.optString("text", null);
                                 
                                 if (text != null && !text.isEmpty()) {
+                                    boolean verbose = jsonObject.optBoolean("verbose", false);
                                     // Direct method call to custom implementation
-                                    accessibilityServiceInstance.customFindByText(text);
+                                    accessibilityServiceInstance.customFindByText(text, verbose);
                                 } else {
                                     Log.w("SERVER", "Missing text parameter");
                                     JSONObject errorResponse = new JSONObject();
@@ -397,8 +401,9 @@ public class SocketService extends Service {
                                 String viewId = jsonObject.optString("viewId", null);
                                 
                                 if (viewId != null && !viewId.isEmpty()) {
+                                    boolean verbose = jsonObject.optBoolean("verbose", false);
                                     // Direct method call to custom implementation
-                                    accessibilityServiceInstance.customFindByViewId(viewId);
+                                    accessibilityServiceInstance.customFindByViewId(viewId, verbose);
                                 } else {
                                     Log.w("SERVER", "Missing viewId parameter");
                                     JSONObject errorResponse = new JSONObject();
@@ -425,8 +430,9 @@ public class SocketService extends Service {
                                 JSONObject properties = jsonObject.optJSONObject("properties");
                                 
                                 if (properties != null) {
+                                    boolean verbose = jsonObject.optBoolean("verbose", false);
                                     // Direct method call to properties implementation
-                                    accessibilityServiceInstance.findByProps(properties);
+                                    accessibilityServiceInstance.findByProps(properties, verbose);
                                 } else {
                                     Log.w("SERVER", "Missing properties parameter");
                                     JSONObject errorResponse = new JSONObject();
