@@ -127,6 +127,179 @@ public class TreeDebug {
     }
   }
 
+  /** Fast tree capture for stable trees - optimized for performance over completeness */
+  public static void logNodeTreesFast(List<AccessibilityWindowInfo> windows, AccessibilityInspector receiver) {
+    inspector = receiver;
+    JSONObject parentObject = new JSONObject();
+    if (windows == null) {
+      return;
+    }
+    
+    JSONArray windowArray = new JSONArray();
+    for (AccessibilityWindowInfo window : windows) {
+      JSONObject windowObject = new JSONObject();
+      if (window == null || !window.isActive()) {
+        continue;
+      }
+
+      JSONObject metadata = new JSONObject();
+      try {
+        metadata.put("windowId", window.getId());
+        metadata.put("role", "Window");
+        windowObject.put("name", "Window");
+        metadata.put("title", window.getTitle());
+      } catch (JSONException e) {
+        Log.e("JSON Error", e.getMessage());
+      }
+      
+      AccessibilityNodeInfo rootInfo = inspector.getRootInActiveWindow();
+      AccessibilityNodeInfoCompat root = AccessibilityNodeInfoCompat.wrap(rootInfo);
+      logNodeTreeFast(root, windowObject);
+      
+      try {
+        // Skip bounds for window root too - only need structural info
+        windowObject.put("id", root.hashCode());
+        windowObject.put("metadata", metadata);
+        AccessibilityNodeInfoUtils.recycleNodes(root);
+      } catch (JSONException e) {
+        Log.e("AccessibilityInspector", e.getMessage());
+      }
+      
+      String title = "";
+      if(window.getTitle() != null) {
+        title = window.getTitle().toString();
+      }
+
+      boolean isEmpty = false;
+      try {
+        isEmpty = windowObject.getJSONArray("children").length() == 0;
+        if(!isEmpty) {
+          JSONArray children = windowObject.getJSONArray("children");
+          if(children.get(0) != null) {
+            JSONObject object = children.getJSONObject(0);
+            if(object.has("paneTitle")) {
+              isEmpty = object.getString("paneTitle").equals("Status bar") || object.getString("paneTitle").equals("Notification shade.");
+            }
+          }
+        }
+      } catch (JSONException e) {
+        isEmpty = true;
+      }
+
+      if(!title.equals("Navigation bar") && !isEmpty){
+        windowArray.put(windowObject);
+      }
+    }
+    try {
+      parentObject.put("children", windowArray);
+      receiver.sendJSON(parentObject);
+      parentObject = new JSONObject();
+    } catch (JSONException e) {
+      Log.e("JSON Error", e.getMessage());
+    }
+  }
+
+  /** Fast tree traversal for stable trees */
+  public static void logNodeTreeFast(@Nullable AccessibilityNodeInfoCompat node, JSONObject windowObject) {
+    if (node == null) {
+      return;
+    }
+
+    HashSet<AccessibilityNodeInfoCompat> seenJson = new HashSet<>();
+    AccessibilityNodeInfoCompat compatNode = AccessibilityNodeInfoCompat.obtain(node);
+    logNodeTreeJsonFast(compatNode, windowObject, seenJson);
+  }
+
+  /** Fast JSON tree building - skips expensive operations */
+  private static void logNodeTreeJsonFast(
+          AccessibilityNodeInfoCompat node, JSONObject parent, HashSet<AccessibilityNodeInfoCompat> seen) {
+    if (!seen.add(node)) {
+      return;
+    }
+    JSONArray childArray = new JSONArray();
+
+    int childCount = node.getChildCount();
+    for (int i = 0; i < childCount; ++i) {
+      JSONObject childObject  = new JSONObject();
+      AccessibilityNodeInfoCompat child = node.getChild(i);
+      if (child == null) {
+        continue;
+      }
+      childArray.put(nodeDebugDescriptionJsonFast(child, childObject));
+      logNodeTreeJsonFast(child, childObject, seen);
+    }
+    try{
+      if(childArray.length() > 0) {
+        parent.put("children", childArray);
+      }
+    } catch (JSONException e) {
+      Log.e("JSON Error", e.getMessage());
+    }
+  }
+
+  /** Lightweight node processing for stable trees - only essential data */
+  public static JSONObject nodeDebugDescriptionJsonFast(AccessibilityNodeInfoCompat node, JSONObject childObject) {
+    try {
+      JSONObject jsonObject = childObject;
+      JSONObject metadata = new JSONObject();
+      
+      // Use simple counter instead of Random for ID
+      jsonObject.put("id", node.hashCode());
+      metadata.put("hashCode", node.hashCode());
+      jsonObject.put("resourceId", node.getViewIdResourceName());
+      
+      // Basic class/role info
+      if (node.getClassName() != null) {
+        metadata.put("role", getSimpleName(node.getClassName()));
+        jsonObject.put("name", getSimpleName(node.getClassName()));
+      } else {
+        metadata.put("role", "??");
+        jsonObject.put("name", "??");
+      }
+
+      // Visibility check
+      boolean isVisible = node.isVisibleToUser();
+      if (!isVisible) {
+        metadata.put("visibility", "invisible");
+      }
+
+      // Basic text content
+      @Nullable CharSequence nodeText = AccessibilityNodeInfoUtils.getText(node);
+      if (nodeText != null) {
+        metadata.put("text", nodeText.toString().trim());
+      }
+      if (node.getContentDescription() != null) {
+        metadata.put("content", node.getContentDescription().toString().trim());
+      }
+
+      // Skip bounds calculation entirely for stable trees - we only need structure
+
+      // Essential interaction properties only
+      JSONArray properties = new JSONArray();
+      if (node.isClickable()) {
+        properties.put("clickable");
+      }
+      if (node.isScrollable()) {
+        properties.put("scrollable");
+      }
+      if (node.isFocused()) {
+        properties.put("focused");
+      }
+      if (!node.isEnabled()) {
+        properties.put("disabled");
+      }
+      if(properties.length() > 0) {
+        metadata.put("properties", properties);
+      }
+
+      jsonObject.put("metadata", metadata);
+      return jsonObject;
+    } catch (JSONException e) {
+      Log.e(TAG, e.getMessage());
+      return null;
+    }
+  }
+
   /** Logs the layout hierarchy of node tree for using the input node as the root. */
   public static void logNodeTree(@Nullable AccessibilityNodeInfoCompat node, JSONObject windowObject) {
     if (node == null) {
@@ -466,7 +639,6 @@ public class TreeDebug {
       if(localeStrings.size() > 0) {
         JSONArray jsonArray = new JSONArray();
         for(AccessibilityNodeInfoUtils.LocaleString localeString : localeStrings) {
-          Log.d("TAG", "Locale " + localeString.localeSpan());
           jsonArray.put(localeString.string() + " - " + Objects.requireNonNull(localeString.localeSpan().getLocale()).toLanguageTag());
         }
         metadata.put("locales", jsonArray);

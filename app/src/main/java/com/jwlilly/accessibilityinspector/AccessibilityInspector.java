@@ -76,12 +76,15 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
     private JSONObject textFieldTree = null;
     private int pasteEventCount = 0;
 
-    // UI stability detection for "before click" tree capture
+    // UI stability detection for stable tree capture
     private Handler stabilityHandler = new Handler(Looper.getMainLooper());
     private Runnable captureStableTree = null;
     private static final int UI_STABILITY_DELAY = 1000; // 1 second of no UI changes
     private JSONObject stableUITree = null;
     private long stableTreeTimestamp = 0;
+    
+    // Debug flag to send WINDOW_CONTENT_CHANGED events to clients
+    private static final boolean SEND_WINDOW_CONTENT_CHANGED_EVENTS = false;
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -104,7 +107,12 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             }
             
             if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                Log.d(LOG_TAG, "WINDOW_CONTENT_CHANGED from package: " + event.getPackageName());
                 handleUIContentChange(event);
+                // Optionally send to clients for debugging
+                if (SEND_WINDOW_CONTENT_CHANGED_EVENTS) {
+                    sendAccessibilityEvent(event);
+                }
             } else if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
                 handleScrollEvent(event);
             } else if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
@@ -118,8 +126,8 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             } else if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 handleWindowStateEvent(event);
             } else {
-                // Send all other events with tree capture
-                sendAccessibilityEventWithTree(event);
+                // Send all other events without tree capture
+                sendAccessibilityEvent(event);
             }
         } catch (Exception e) {
             Log.e(LOG_TAG, "Error processing accessibility event: " + e.getMessage(), e);
@@ -1217,15 +1225,21 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         captureStableTree = () -> {
             try {
                 List<AccessibilityWindowInfo> windows = getWindows();
+                
                 if (windows != null && !windows.isEmpty()) {
-                    // Capture tree using TreeDebug
-                    TreeDebug.logNodeTrees(windows, this);
+                    // Use fast tree capture for stable trees
+                    TreeDebug.logNodeTreesFast(windows, this);
                     
                     // TreeDebug calls sendJSON() which stores tree in jsonObject
                     if (jsonObject != null) {
-                        stableUITree = new JSONObject(jsonObject.toString()); // Deep copy
-                        stableTreeTimestamp = System.currentTimeMillis();
-                        Log.d(LOG_TAG, "Captured stable UI tree after " + UI_STABILITY_DELAY + "ms of stability");
+                        // Compare with previous tree to detect actual changes
+                        if (stableUITree == null || hasTreeChanged(stableUITree, jsonObject)) {
+                            JSONObject oldTree = stableUITree; // Keep reference for diff logging
+                            stableUITree = new JSONObject(jsonObject.toString()); // Deep copy
+                            stableTreeTimestamp = System.currentTimeMillis();
+                            
+                            sendStableTree();
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -1332,8 +1346,8 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             handleTextFieldFocus(focused);
         }
         
-        // Send focus event with "before" tree (showing UI when focus was about to change)
-        sendFocusEventWithBeforeTree(event);
+        // Send simple focus event without tree association
+        sendAccessibilityEvent(event);
     }
 
     // Handle click events
@@ -1349,14 +1363,14 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             }
         }
         
-        // Send click event with "before" tree (what user saw when deciding to click)
-        sendClickEventWithBeforeTree(event);
+        // Send simple click event without tree association
+        sendAccessibilityEvent(event);
     }
 
     // Handle selection events
     private void handleSelectionEvent(AccessibilityEvent event) {
-        // Send selection event with "before" tree (showing options user saw when choosing)
-        sendSelectionEventWithBeforeTree(event);
+        // Send simple selection event without tree association
+        sendAccessibilityEvent(event);
     }
 
     // Handle window state changes (no tree capture - too frequent)
@@ -1373,161 +1387,75 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         }
     }
 
-    // Send click event with "before" tree showing what user saw
-    private void sendClickEventWithBeforeTree(AccessibilityEvent event) {
+
+    // Send simple accessibility event without tree capture
+    private void sendAccessibilityEvent(AccessibilityEvent event) {
         try {
             JSONObject eventJson = createBaseEventJson(event);
             
-            // Add "before" tree information
-            if (stableUITree != null) {
-                long treeAge = System.currentTimeMillis() - stableTreeTimestamp;
-                JSONObject metadata = new JSONObject();
-                metadata.put("treeAge", treeAge);
-                eventJson.put("metadata", metadata);
-                
-                // Send the event first
-                Log.d(LOG_TAG, "Click event JSON: " + eventJson.toString());
-                Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                eventIntent.putExtra("messageData", eventJson.toString());
-                startService(eventIntent);
-                
-                // Then send the "before" tree data wrapped with type and timestamp
-                JSONObject treeWrapper = new JSONObject();
-                treeWrapper.put("type", "treeBeforeEvent");
-                treeWrapper.put("eventType", getEventTypeName(event.getEventType()));
-                treeWrapper.put("timestamp", stableTreeTimestamp);
-                treeWrapper.put("children", stableUITree.getJSONArray("children"));
-                
-                Intent treeIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                treeIntent.putExtra("messageData", treeWrapper.toString());
-                startService(treeIntent);
-                
-                Log.d(LOG_TAG, "Click event sent with before tree (age: " + treeAge + "ms)");
-            } else {
-                // No stable tree available - send without tree
-                Log.d(LOG_TAG, "Click event JSON (no tree): " + eventJson.toString());
-                Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                eventIntent.putExtra("messageData", eventJson.toString());
-                startService(eventIntent);
-                
-                Log.d(LOG_TAG, "Click event sent without before tree");
-            }
-        } catch (Exception e) {
-            Log.e(LOG_TAG, "Error sending click event with before tree: " + e.getMessage(), e);
-        }
-    }
-
-    // Send selection event with "before" tree showing options user saw
-    private void sendSelectionEventWithBeforeTree(AccessibilityEvent event) {
-        try {
-            JSONObject eventJson = createBaseEventJson(event);
-            
-            // Add "before" tree information
-            if (stableUITree != null) {
-                long treeAge = System.currentTimeMillis() - stableTreeTimestamp;
-                JSONObject metadata = new JSONObject();
-                metadata.put("treeAge", treeAge);
-                eventJson.put("metadata", metadata);
-                
-                // Send the event first
-                Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                eventIntent.putExtra("messageData", eventJson.toString());
-                startService(eventIntent);
-                
-                // Then send the "before" tree data wrapped with type and timestamp
-                JSONObject treeWrapper = new JSONObject();
-                treeWrapper.put("type", "treeBeforeEvent");
-                treeWrapper.put("eventType", getEventTypeName(event.getEventType()));
-                treeWrapper.put("timestamp", stableTreeTimestamp);
-                treeWrapper.put("children", stableUITree.getJSONArray("children"));
-                
-                Intent treeIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                treeIntent.putExtra("messageData", treeWrapper.toString());
-                startService(treeIntent);
-                
-                Log.d(LOG_TAG, "Selection event sent with before tree (age: " + treeAge + "ms)");
-            } else {
-                // No stable tree available - send without tree
-                
-                Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                eventIntent.putExtra("messageData", eventJson.toString());
-                startService(eventIntent);
-                
-                Log.d(LOG_TAG, "Selection event sent without before tree");
-            }
-        } catch (Exception e) {
-            Log.e(LOG_TAG, "Error sending selection event with before tree: " + e.getMessage(), e);
-        }
-    }
-
-    // Send focus event with "before" tree showing UI when focus was about to change
-    private void sendFocusEventWithBeforeTree(AccessibilityEvent event) {
-        try {
-            JSONObject eventJson = createBaseEventJson(event);
-            
-            // Add "before" tree information
-            if (stableUITree != null) {
-                long treeAge = System.currentTimeMillis() - stableTreeTimestamp;
-                JSONObject metadata = new JSONObject();
-                metadata.put("treeAge", treeAge);
-                eventJson.put("metadata", metadata);
-                
-                // Send the event first
-                Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                eventIntent.putExtra("messageData", eventJson.toString());
-                startService(eventIntent);
-                
-                // Then send the "before" tree data wrapped with type and timestamp
-                JSONObject treeWrapper = new JSONObject();
-                treeWrapper.put("type", "treeBeforeEvent");
-                treeWrapper.put("eventType", getEventTypeName(event.getEventType()));
-                treeWrapper.put("timestamp", stableTreeTimestamp);
-                treeWrapper.put("children", stableUITree.getJSONArray("children"));
-                
-                Intent treeIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                treeIntent.putExtra("messageData", treeWrapper.toString());
-                startService(treeIntent);
-                
-                Log.d(LOG_TAG, "Focus event sent with before tree (age: " + treeAge + "ms)");
-            } else {
-                // No stable tree available - send without tree
-                
-                Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                eventIntent.putExtra("messageData", eventJson.toString());
-                startService(eventIntent);
-                
-                Log.d(LOG_TAG, "Focus event sent without before tree");
-            }
-        } catch (Exception e) {
-            Log.e(LOG_TAG, "Error sending focus event with before tree: " + e.getMessage(), e);
-        }
-    }
-
-    // Send accessibility event with full tree capture
-    private void sendAccessibilityEventWithTree(AccessibilityEvent event) {
-        try {
-            JSONObject eventJson = createBaseEventJson(event);
-            
-            // Capture tree context
-            AccessibilityNodeInfo source = event.getSource();
-            if (source != null) {
-                AccessibilityWindowInfo window = source.getWindow();
-                if (window != null) {
-                    List<AccessibilityWindowInfo> windows = List.of(window);
-                    JSONObject treeJson = new JSONObject();
-                    TreeDebug.logNodeTrees(windows, this);
-                    // Note: TreeDebug.logNodeTrees sends the tree via sendJSON, so we'll modify this
-                    eventJson.put("hasTree", true);
-                }
-            }
-
             Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
             eventIntent.putExtra("messageData", eventJson.toString());
             startService(eventIntent);
-            Log.d(LOG_TAG, "Accessibility event with tree sent: " + getEventTypeName(event.getEventType()));
+            Log.d(LOG_TAG, "Accessibility event sent: " + getEventTypeName(event.getEventType()));
         } catch (Exception e) {
-            Log.e(LOG_TAG, "Error sending accessibility event with tree: " + e.getMessage(), e);
+            Log.e(LOG_TAG, "Error sending accessibility event: " + e.getMessage(), e);
         }
+    }
+
+    // Send stable tree to all clients
+    private void sendStableTree() {
+        try {
+            JSONObject treeResponse = new JSONObject();
+            treeResponse.put("type", "stableTree");
+            treeResponse.put("timestamp", stableTreeTimestamp);
+            
+            // Filter out invisible leaf nodes to reduce size while preserving structure
+            JSONArray originalChildren = stableUITree.getJSONArray("children");
+            JSONArray filteredChildren = removeInvisibleLeafNodes(originalChildren);
+            treeResponse.put("children", filteredChildren);
+            
+            Intent treeIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
+            treeIntent.putExtra("messageData", treeResponse.toString());
+            startService(treeIntent);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error sending stable tree: " + e.getMessage(), e);
+        }
+    }
+    
+    // Remove invisible leaf nodes recursively while preserving tree structure
+    private JSONArray removeInvisibleLeafNodes(JSONArray children) throws Exception {
+        JSONArray filtered = new JSONArray();
+        
+        for (int i = 0; i < children.length(); i++) {
+            JSONObject child = children.getJSONObject(i);
+            
+            // First, recursively process this node's children
+            if (child.has("children")) {
+                JSONArray childChildren = child.getJSONArray("children");
+                JSONArray filteredChildChildren = removeInvisibleLeafNodes(childChildren);
+                child.put("children", filteredChildChildren);
+            }
+            
+            // Check if this node is invisible
+            boolean isVisible = true;
+            if (child.has("metadata")) {
+                JSONObject metadata = child.getJSONObject("metadata");
+                if (metadata.has("visibility") && "invisible".equals(metadata.getString("visibility"))) {
+                    isVisible = false;
+                }
+            }
+            
+            // Only remove invisible nodes that are now leaf nodes (no children after filtering)
+            boolean hasChildren = child.has("children") && child.getJSONArray("children").length() > 0;
+            
+            if (isVisible || hasChildren) {
+                // Keep visible nodes and invisible nodes that have children (structural containers)
+                filtered.put(child);
+            }
+            // Skip invisible leaf nodes (they serve no structural purpose)
+        }
+        
+        return filtered;
     }
 
     // Create base event JSON without tree
@@ -1655,32 +1583,7 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
                 sourceInfo.put("metadata", metadata);
                 eventJson.put("source", sourceInfo);
                 
-                // Use "before" tree (what user saw when they started scrolling)
-                if (stableUITree != null) {
-                    eventJson.put("hasBeforeTree", true);
-                        long treeAge = System.currentTimeMillis() - stableTreeTimestamp;
-                    eventJson.put("treeAgeMs", treeAge);
-                    
-                    // Send scroll event first
-                    Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                    eventIntent.putExtra("messageData", eventJson.toString());
-                    startService(eventIntent);
-                    
-                    // Then send the "before" tree data wrapped with type and timestamp
-                    JSONObject treeWrapper = new JSONObject();
-                    treeWrapper.put("type", "treeBeforeEvent");
-                    treeWrapper.put("eventType", "SCROLL_SEQUENCE_END");
-                    treeWrapper.put("timestamp", stableTreeTimestamp);
-                    treeWrapper.put("children", stableUITree.getJSONArray("children"));
-                    
-                    Intent treeIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
-                    treeIntent.putExtra("messageData", treeWrapper.toString());
-                    startService(treeIntent);
-                    
-                    Log.d(LOG_TAG, "Scroll sequence ended with before tree (age: " + treeAge + "ms)");
-                    return; // Early return since we've already sent the event
-                } else {
-                }
+                // No longer using before-tree logic
             }
 
             Intent eventIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
@@ -1857,7 +1760,237 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             case AccessibilityEvent.TYPE_VIEW_SELECTED: return "VIEW_SELECTED";
             case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED: return "VIEW_ACCESSIBILITY_FOCUSED";
             case AccessibilityEvent.TYPE_ANNOUNCEMENT: return "ANNOUNCEMENT";
+            case AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED: return "WINDOW_CONTENT_CHANGED";
+            case AccessibilityEvent.TYPE_VIEW_CONTEXT_CLICKED: return "VIEW_CONTEXT_CLICKED";
             default: return "UNKNOWN_" + eventType;
+        }
+    }
+
+    // Check if tree content has meaningfully changed (ignoring volatile node IDs)
+    private boolean hasTreeChanged(JSONObject oldTree, JSONObject newTree) {
+        try {
+            // Remove volatile IDs before comparison
+            JSONObject oldClean = removeNodeIds(oldTree);
+            JSONObject newClean = removeNodeIds(newTree);
+            
+            String oldStr = oldClean.toString();
+            String newStr = newClean.toString();
+            return !oldStr.equals(newStr);
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error comparing trees: " + e.getMessage());
+            return true; // Assume changed if we can't compare
+        }
+    }
+    
+    // Remove volatile node IDs from tree for comparison
+    private JSONObject removeNodeIds(JSONObject tree) throws Exception {
+        JSONObject cleaned = new JSONObject();
+        
+        // Copy all properties except "id"
+        java.util.Iterator<String> keys = tree.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (!key.equals("id")) {
+                Object value = tree.get(key);
+                if (value instanceof JSONArray) {
+                    cleaned.put(key, removeNodeIdsFromArray((JSONArray) value));
+                } else if (value instanceof JSONObject) {
+                    cleaned.put(key, removeNodeIds((JSONObject) value));
+                } else {
+                    cleaned.put(key, value);
+                }
+            }
+        }
+        
+        return cleaned;
+    }
+    
+    // Remove node IDs from array of objects
+    private JSONArray removeNodeIdsFromArray(JSONArray array) throws Exception {
+        JSONArray cleaned = new JSONArray();
+        for (int i = 0; i < array.length(); i++) {
+            Object item = array.get(i);
+            if (item instanceof JSONObject) {
+                cleaned.put(removeNodeIds((JSONObject) item));
+            } else if (item instanceof JSONArray) {
+                cleaned.put(removeNodeIdsFromArray((JSONArray) item));
+            } else {
+                cleaned.put(item);
+            }
+        }
+        return cleaned;
+    }
+
+    // Log differences between trees to help debug what's changing
+    private void logTreeDifferences(JSONObject oldTree, JSONObject newTree) {
+        try {
+            // Compare top-level properties
+            JSONArray oldChildren = oldTree.optJSONArray("children");
+            JSONArray newChildren = newTree.optJSONArray("children");
+            
+            if (oldChildren != null && newChildren != null) {
+                if (oldChildren.length() != newChildren.length()) {
+                    Log.d(LOG_TAG, "TREE DIFF: Window count changed from " + oldChildren.length() + " to " + newChildren.length());
+                    return;
+                }
+                
+                // Compare each window
+                for (int i = 0; i < oldChildren.length(); i++) {
+                    JSONObject oldWindow = oldChildren.optJSONObject(i);
+                    JSONObject newWindow = newChildren.optJSONObject(i);
+                    
+                    if (oldWindow != null && newWindow != null) {
+                        String oldTitle = oldWindow.optString("name", "");
+                        String newTitle = newWindow.optString("name", "");
+                        
+                        if (!oldTitle.equals(newTitle)) {
+                            Log.d(LOG_TAG, "TREE DIFF: Window " + i + " title changed from '" + oldTitle + "' to '" + newTitle + "'");
+                        } else {
+                            // Same window title, check if content changed
+                            String oldWindowStr = oldWindow.toString();
+                            String newWindowStr = newWindow.toString();
+                            if (!oldWindowStr.equals(newWindowStr)) {
+                                Log.d(LOG_TAG, "TREE DIFF: Window '" + oldTitle + "' content changed");
+                                logDetailedWindowDiff(oldWindow, newWindow, oldTitle);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error logging tree differences: " + e.getMessage());
+        }
+    }
+
+    // Log detailed differences within a specific window
+    private void logDetailedWindowDiff(JSONObject oldWindow, JSONObject newWindow, String windowTitle) {
+        try {
+            String oldStr = oldWindow.toString();
+            String newStr = newWindow.toString();
+            
+            Log.d(LOG_TAG, "TREE DIFF: Analyzing window '" + windowTitle + "' (size: " + oldStr.length() + " → " + newStr.length() + ")");
+            
+            // Find first character difference
+            int diffIndex = findFirstDifference(oldStr, newStr);
+            if (diffIndex >= 0) {
+                int start = Math.max(0, diffIndex - 50);
+                int oldEnd = Math.min(oldStr.length(), diffIndex + 50);
+                int newEnd = Math.min(newStr.length(), diffIndex + 50);
+                
+                String oldSnippet = oldStr.substring(start, oldEnd);
+                String newSnippet = newStr.substring(start, newEnd);
+                
+                Log.d(LOG_TAG, "TREE DIFF: First difference at position " + diffIndex + ":");
+                Log.d(LOG_TAG, "  OLD: ..." + oldSnippet + "...");
+                Log.d(LOG_TAG, "  NEW: ..." + newSnippet + "...");
+                
+                // Try to identify what changed by looking for patterns
+                identifyChangePattern(oldSnippet, newSnippet, diffIndex);
+            }
+            
+            // Also check specific properties more thoroughly
+            String[] keysToCheck = {"text", "resourceId", "className", "bounds", "name", "metadata"};
+            for (String key : keysToCheck) {
+                String oldValue = getNestedStringValue(oldWindow, key);
+                String newValue = getNestedStringValue(newWindow, key);
+                
+                if (!oldValue.equals(newValue)) {
+                    Log.d(LOG_TAG, "TREE DIFF: Property '" + key + "' changed:");
+                    logStringDifference(oldValue, newValue);
+                    break; // Only log first property difference
+                }
+            }
+            
+        } catch (Exception e) {
+            Log.e(LOG_TAG, "Error logging detailed window diff: " + e.getMessage());
+        }
+    }
+    
+    // Find the first character position where two strings differ
+    private int findFirstDifference(String str1, String str2) {
+        int minLength = Math.min(str1.length(), str2.length());
+        for (int i = 0; i < minLength; i++) {
+            if (str1.charAt(i) != str2.charAt(i)) {
+                return i;
+            }
+        }
+        // If one string is longer, the difference is at the end of the shorter one
+        return (str1.length() != str2.length()) ? minLength : -1;
+    }
+    
+    // Try to identify what type of change occurred
+    private void identifyChangePattern(String oldSnippet, String newSnippet, int diffIndex) {
+        try {
+            // Look for time patterns (HH:MM format)
+            if (oldSnippet.matches(".*\\d{1,2}:\\d{2}.*") && newSnippet.matches(".*\\d{1,2}:\\d{2}.*")) {
+                Log.d(LOG_TAG, "  PATTERN: Likely time/clock change");
+            }
+            // Look for percentage patterns
+            else if (oldSnippet.matches(".*\\d+%.*") && newSnippet.matches(".*\\d+%.*")) {
+                Log.d(LOG_TAG, "  PATTERN: Likely percentage change (battery/etc)");
+            }
+            // Look for numeric changes
+            else if (oldSnippet.matches(".*\\d+.*") && newSnippet.matches(".*\\d+.*")) {
+                Log.d(LOG_TAG, "  PATTERN: Likely numeric value change");
+            }
+            // Look for JSON property changes
+            else if (oldSnippet.contains("\":") && newSnippet.contains("\":")) {
+                Log.d(LOG_TAG, "  PATTERN: Likely JSON property value change");
+            }
+            else {
+                Log.d(LOG_TAG, "  PATTERN: Unknown change type");
+            }
+        } catch (Exception e) {
+            Log.d(LOG_TAG, "  PATTERN: Error analyzing - " + e.getMessage());
+        }
+    }
+    
+    // Log the specific differences between two strings
+    private void logStringDifference(String oldValue, String newValue) {
+        if (oldValue.length() < 200 && newValue.length() < 200) {
+            // For short strings, show full values
+            Log.d(LOG_TAG, "    OLD: '" + oldValue + "'");
+            Log.d(LOG_TAG, "    NEW: '" + newValue + "'");
+        } else {
+            // For long strings, show first difference
+            int diffPos = findFirstDifference(oldValue, newValue);
+            if (diffPos >= 0) {
+                int start = Math.max(0, diffPos - 30);
+                int oldEnd = Math.min(oldValue.length(), diffPos + 30);
+                int newEnd = Math.min(newValue.length(), diffPos + 30);
+                
+                Log.d(LOG_TAG, "    OLD: ..." + oldValue.substring(start, oldEnd) + "...");
+                Log.d(LOG_TAG, "    NEW: ..." + newValue.substring(start, newEnd) + "...");
+            }
+        }
+    }
+
+    // Helper to recursively extract string values from nested JSON
+    private String getNestedStringValue(JSONObject obj, String targetKey) {
+        StringBuilder result = new StringBuilder();
+        try {
+            extractStringValues(obj, targetKey, result);
+        } catch (Exception e) {
+            // Ignore extraction errors
+        }
+        return result.toString();
+    }
+
+    // Recursively extract all values for a specific key
+    private void extractStringValues(JSONObject obj, String targetKey, StringBuilder result) throws Exception {
+        if (obj.has(targetKey)) {
+            result.append(obj.optString(targetKey, "")).append("|");
+        }
+        
+        // Check children array
+        JSONArray children = obj.optJSONArray("children");
+        if (children != null) {
+            for (int i = 0; i < children.length(); i++) {
+                JSONObject child = children.optJSONObject(i);
+                if (child != null) {
+                    extractStringValues(child, targetKey, result);
+                }
+            }
         }
     }
 
