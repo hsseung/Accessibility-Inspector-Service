@@ -88,7 +88,7 @@ The service uses two different capture methods optimized for different use cases
 ### Automatic Stable Trees  
 **Messages**: `stableTree` type
 - **Method**: Optimized structural capture (`TreeDebug.logNodeTreesFast()`)
-- **Speed**: 200-300ms per capture (50-80x faster)
+- **Speed**: 200-300ms per capture (faster)
 - **Data**: Essential structure only
   - Node hierarchy and relationships
   - Text content and descriptions
@@ -441,7 +441,7 @@ The service continuously monitors for UI changes via `WINDOW_CONTENT_CHANGED` ev
 
 **Performance Results**:
 - **Before**: 10-15 seconds for stable tree capture
-- **After**: 200-300ms for stable tree capture (50-80x improvement)
+- **After**: 200-300ms for stable tree capture
 - **Compatibility**: Regular tree capture unchanged for debugging tools
 
 **Debug Enhancements**:
