@@ -85,6 +85,9 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
     
     // Debug flag to send WINDOW_CONTENT_CHANGED events to clients
     private static final boolean SEND_WINDOW_CONTENT_CHANGED_EVENTS = false;
+    
+    // Flag to control visible-only filtering for manual tree captures
+    private boolean manualCaptureVisibleOnly = false;
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -206,11 +209,15 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
             Log.d(LOG_TAG, "Broadcast received with action: " + intent.getAction());
 
             if(intent.getAction().equalsIgnoreCase("A11yInspector")) {
-                Log.d(LOG_TAG, "Processing capture request (important only)");
+                boolean visibleOnly = intent.getBooleanExtra("visibleOnly", false);
+                Log.d(LOG_TAG, "Processing capture request (important only), visibleOnly=" + visibleOnly);
+                manualCaptureVisibleOnly = visibleOnly;
                 hideNotImportant();
                 startCapture();
             } else if(intent.getAction().equalsIgnoreCase("A11yInspectorImportant")) {
-                Log.d(LOG_TAG, "Processing capture request (all)");
+                boolean visibleOnly = intent.getBooleanExtra("visibleOnly", false);
+                Log.d(LOG_TAG, "Processing capture request (all), visibleOnly=" + visibleOnly);
+                manualCaptureVisibleOnly = visibleOnly;
                 showNotImportant();
                 startCapture();
             } else if(intent.getAction().equalsIgnoreCase("A11yInspectorAction")) {
@@ -981,7 +988,21 @@ public class AccessibilityInspector extends AccessibilityService implements Obse
         try {
             JSONObject treeResponse = new JSONObject();
             treeResponse.put("type", "tree");
-            treeResponse.put("children", jsonObject.getJSONArray("children"));
+            
+            JSONArray originalChildren = jsonObject.getJSONArray("children");
+            JSONArray children;
+            
+            // Apply filtering only if visibleOnly parameter was set to true
+            if (manualCaptureVisibleOnly) {
+                Log.d(LOG_TAG, "Applying visibleOnly filtering to manual tree capture");
+                children = removeInvisibleLeafNodes(originalChildren);
+            } else {
+                Log.d(LOG_TAG, "Sending full tree (no visibleOnly filtering)");
+                children = originalChildren;
+            }
+            
+            treeResponse.put("children", children);
+            
             Intent announcementIntent = new Intent(SocketService.BROADCAST_MESSAGE, null, this, SocketService.class);
             announcementIntent.putExtra("messageData", treeResponse.toString());
             startService(announcementIntent);

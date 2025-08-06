@@ -69,6 +69,35 @@ Android Accessibility Inspector Service - exposes Android accessibility tree dat
 
 **Connection**: `ws://localhost:38301/` (use `adb forward tcp:38301 tcp:38301`)
 
+## Performance Characteristics
+
+The service uses two different capture methods optimized for different use cases:
+
+### Manual Tree Capture
+**Commands**: `capture`, `captureNotImportant`
+- **Method**: Full metadata extraction (`TreeDebug.logNodeTrees()`)
+- **Speed**: 5-15 seconds per capture
+- **Data**: Complete debugging information
+  - Screen coordinates (`getBoundsInScreen()`)
+  - Clickable text analysis (URLs, emails, phone numbers)
+  - Locale/language detection
+  - Action lists and complex metadata
+  - DP scaling calculations
+- **Use Case**: Manual debugging, detailed analysis, development tools
+
+### Automatic Stable Trees  
+**Messages**: `stableTree` type
+- **Method**: Optimized structural capture (`TreeDebug.logNodeTreesFast()`)
+- **Speed**: 200-300ms per capture (50-80x faster)
+- **Data**: Essential structure only
+  - Node hierarchy and relationships
+  - Text content and descriptions
+  - Visibility state and basic properties
+  - Node identification (hashCode, className, resourceId)
+- **Use Case**: Real-time monitoring, automation, change detection
+
+**Trade-off**: Manual captures provide complete data but are slow. Stable trees provide fast updates but with minimal metadata.
+
 ## Message Types
 
 The service supports two distinct message flows:
@@ -78,8 +107,10 @@ The service supports two distinct message flows:
 
 #### Commands
 ```json
-{"message":"capture"}           // Request tree (important views only)
-{"message":"captureNotImportant"}  // Request tree (all views)
+{"message":"capture"}           // Request tree (important views only) - SLOW/FULL method
+{"message":"capture", "visibleOnly":true}  // Request tree with invisible leaf filtering (reduces size)
+{"message":"captureNotImportant"}  // Request tree (all views) - SLOW/FULL method  
+{"message":"captureNotImportant", "visibleOnly":true}  // Request tree (all views) with filtering
 {"message":"ping"}              // Connection test
 {"message":"performAction", "resourceId":"...", "action":"CLICK"}
 {"message":"performGesture", "gestureType":"TAP", "x":100, "y":200}
@@ -239,6 +270,34 @@ All find methods support an optional `verbose` flag (defaults to `false`). When 
   ],
   "childCount": 0
 }
+
+## **Tree Capture Size Optimization**
+
+### **visibleOnly Parameter**
+
+Both `capture` and `captureNotImportant` commands support an optional `visibleOnly` parameter to reduce tree size:
+
+```json
+{"message":"capture", "visibleOnly":true}
+{"message":"captureNotImportant", "visibleOnly":true}
+```
+
+**How it works**:
+- **Default behavior** (`visibleOnly`: false or omitted): Full tree with all nodes
+- **Filtered behavior** (`visibleOnly`: true): Removes invisible leaf nodes while preserving tree structure
+
+**Benefits**:
+- ✅ Reduces tree size by removing invisible UI elements that serve no functional purpose
+- ✅ Prevents Android Intent size limit (~973KB) failures on complex apps
+- ✅ Faster WebSocket transmission
+- ✅ Preserves structural containers (invisible nodes with children)
+
+**Use cases**:
+- **Large apps** (news apps, social media): Use `visibleOnly:true` to avoid size limit failures
+- **Debugging invisible elements**: Use `visibleOnly:false` (default) to see all nodes
+- **Production automation**: Use `visibleOnly:true` for faster, more reliable captures
+
+**Note**: The same filtering is automatically applied to stable trees to ensure reliable delivery.
 
 ## **Find Method Comparison**
 
@@ -471,17 +530,17 @@ The service continuously monitors for UI changes via `WINDOW_CONTENT_CHANGED` ev
 
 ### Debug Clients
 
-**debug_client.py**: Primary debugging tool that shows detailed message analysis
+**tests/debug_client.py**: Primary debugging tool that shows detailed message analysis
 ```bash
-python3 debug_client.py
+cd tests && python3 debug_client.py
 ```
 - Displays message type in header (🎯 ACCESSIBILITY EVENT, 🌳 TREE MESSAGE, etc.)
 - Shows JSON preview (truncated at 1000 characters)
 - Handles both string and byte messages
 
-**quick_test.py**: Simple connectivity test for basic functionality
+**tests/quick_test.py**: Simple connectivity test for basic functionality
 ```bash
-python3 quick_test.py
+cd tests && python3 quick_test.py
 ```
 - Minimal output showing message types and sizes
 - Good for quick connection verification
@@ -489,117 +548,116 @@ python3 quick_test.py
 
 ### Test Scripts
 
-**test_capture_commands.py**: Tests tree capture functionality
+**tests/test_capture_commands.py**: Tests tree capture functionality
 ```bash
-python3 test_capture_commands.py
+cd tests && python3 test_capture_commands.py
 ```
 - Tests `capture` (important nodes only) and `captureNotImportant` (all nodes)
 - Shows JSON size, node counts, and response times
 - Verifies WebSocket connection health with ping/pong
 
-**test_simple_find.py**: Tests findByViewId and findByText commands
+**tests/test_find_interactive.py**: Interactive element search tool
 ```bash
-python3 test_simple_find.py
-```
-- Tests finding specific elements like system clock
-- Shows detailed node properties for found elements
-- No tree capture to avoid timeout issues
-
-**test_find_interactive.py**: Interactive element search tool
-```bash
-python3 test_find_interactive.py
+cd tests && python3 test_find_interactive.py
 ```
 - Menu-driven interface for searching elements
 - Supports findByViewId and findByText searches
 - Shows all node properties including bounds, states, and IDs
 - Filters out accessibility events automatically
 
-**test_find_and_click.py**: Demonstrates find + action workflow
+**tests/test_find_and_click.py**: Demonstrates find + action workflow
 ```bash
-python3 test_find_and_click.py
+cd tests && python3 test_find_and_click.py
 ```
 - Searches for elements by text
 - Allows selection from multiple results
 - Performs click actions on selected elements
 - Shows detailed properties for all found elements
 
-**test_find_commands.py**: Comprehensive test of find functionality
+**tests/test_actions.py**: Tests performAction commands
 ```bash
-python3 test_find_commands.py
-```
-- Automated test of both find commands
-- Tests with system UI elements and common text
-- Tests error cases (missing parameters)
-- Verifies response formats
-
-**test_actions.py**: Tests performAction commands
-```bash
-python3 test_actions.py
+cd tests && python3 test_actions.py
 ```
 - Tests various action types (CLICK, FOCUS, LONG_CLICK, SET_TEXT)
 - Uses found elements from findByText/findByViewId
 - Tests both hashCode and resourceId targeting
 - Tests error cases (missing parameters)
 
-**test_gestures.py**: Tests performGesture commands
+**tests/test_gestures.py**: Tests performGesture commands
 ```bash
-python3 test_gestures.py
+cd tests && python3 test_gestures.py
 ```
 - Tests all gesture types (TAP, SWIPE, SCROLL, LONG_PRESS, DOUBLE_TAP)
 - Tests predefined scroll directions (UP, DOWN, LEFT, RIGHT)
 - Tests optional parameters (duration, end coordinates)
 - Tests error cases (missing gestureType, invalid coordinates)
 
-**test_launch.py**: Tests launchActivity commands
+**tests/test_launch.py**: Tests launchActivity commands
 ```bash
-python3 test_launch.py
+cd tests && python3 test_launch.py
 ```
 - Tests various launch types (PACKAGE, ACTIVITY, INTENT)
 - Tests common apps (Settings, Calculator, Browser)
 - Tests different intent actions and data formats
 - Tests error cases (missing parameters, invalid packages)
 
+**tests/test_findByProps.py**: Tests property-based searching
+```bash
+cd tests && python3 test_findByProps.py
+```
+- Tests JSON criteria matching across multiple properties
+- Supports string, boolean, and integer property matching
+- Tests error cases and complex property combinations
+
+**tests/test_findByRegex.py**: Tests regex pattern matching
+```bash
+cd tests && python3 test_findByRegex.py
+```
+- Tests regex patterns in both text and contentDescription fields
+- Supports case-insensitive matching and complex patterns
+- Tests error cases (invalid regex patterns)
+
+**tests/test_verbose_find.py**: Tests verbose mode for find methods
+```bash
+cd tests && python3 test_verbose_find.py
+```
+- Tests additional properties returned with verbose flag
+- Compares basic vs verbose response formats
+- Tests across all find method types
+
+**tests/test_visible_only.py**: Tests tree size optimization
+```bash
+cd tests && python3 test_visible_only.py
+```
+- Tests visibleOnly parameter for capture commands
+- Compares tree sizes with/without filtering
+- Demonstrates size reduction benefits
+
 ### **Diagnostic Scripts**
 
-**test_native_vs_custom.py**: Compare native vs custom find methods
+**tests/test_native_vs_custom.py**: Compare native vs custom find methods
 ```bash
-python3 test_native_vs_custom.py
+cd tests && python3 test_native_vs_custom.py
 ```
 - Direct performance and accuracy comparison
 - Reveals native method limitations
 - Used to identify findByText deprecation need
 
-**test_case_sensitivity.py**: Test case sensitivity hypothesis
+**tests/test_viewid_consistency.py**: Verify viewId method reliability
 ```bash
-python3 test_case_sensitivity.py
-```
-- Tests various capitalizations of same text
-- Rules out case sensitivity as sole issue
-- Shows semantic filtering patterns
-
-**test_find_differences.py**: Identify specific missed nodes
-```bash
-python3 test_find_differences.py
-```
-- Shows exact nodes found by custom but not native
-- Analyzes patterns in missed content
-- Demonstrates Android's semantic filtering
-
-**test_viewid_consistency.py**: Verify viewId method reliability
-```bash
-python3 test_viewid_consistency.py
+cd tests && python3 test_viewid_consistency.py
 ```
 - Confirms native findByViewId works correctly
 - Shows why only findByText needs deprecation
 - Tests various viewId formats and edge cases
 
-**debug_tree_format.py**: Examine tree structure
+**tests/test_bounds_comparison.py**: Tests coordinate bounds accuracy
 ```bash
-python3 debug_tree_format.py
+cd tests && python3 test_bounds_comparison.py
 ```
-- Shows actual tree format and field names
-- Helps debug tree vs find result differences
-- Useful for understanding data structures
+- Compares bounds data across different methods
+- Verifies coordinate consistency
+- Useful for gesture targeting validation
 
 **Connection Setup:**
 ```bash
@@ -607,5 +665,5 @@ python3 debug_tree_format.py
 adb forward tcp:38301 tcp:38301
 
 # Then run any test script
-python3 test_script_name.py
+cd tests && python3 test_script_name.py
 ```

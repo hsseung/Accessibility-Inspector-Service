@@ -91,9 +91,13 @@ public class SocketService extends Service {
         if (action == null) {
             return START_NOT_STICKY;
         } else if (action.equals(BROADCAST_MESSAGE)) {
+            Log.d("SERVER", "SocketService received BROADCAST_MESSAGE intent");
             String messageData = intent.getStringExtra("messageData");
+            Log.d("SERVER", "Message data: " + (messageData != null ? messageData.substring(0, Math.min(50, messageData.length())) + "..." : "null"));
             if (messageData != null) {
                 requestCallback.BroadcastMessage(messageData);
+            } else {
+                Log.w("SERVER", "Received BROADCAST_MESSAGE with null messageData");
             }
         }
         return START_NOT_STICKY;
@@ -136,6 +140,9 @@ public class SocketService extends Service {
                             }
                             Intent intent = new Intent("com.jwlilly.accessibilityinspector");
                             intent.setAction("A11yInspector");
+                            // Add optional visibleOnly parameter (defaults to false for backward compatibility)
+                            boolean visibleOnly = jsonObject.optBoolean("visibleOnly", false);
+                            intent.putExtra("visibleOnly", visibleOnly);
                             sendBroadcast(intent);
                         }
                         if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("ping")) {
@@ -150,6 +157,9 @@ public class SocketService extends Service {
                             }
                             Intent intent = new Intent("com.jwlilly.accessibilityinspector");
                             intent.setAction("A11yInspectorImportant");
+                            // Add optional visibleOnly parameter (defaults to false for backward compatibility)
+                            boolean visibleOnly = jsonObject.optBoolean("visibleOnly", false);
+                            intent.putExtra("visibleOnly", visibleOnly);
                             sendBroadcast(intent);
                         }
                         if(jsonObject.has("message") && jsonObject.getString("message").equalsIgnoreCase("performAction")) {
@@ -232,9 +242,6 @@ public class SocketService extends Service {
                         // Handle gesture requests - DIRECT METHOD CALL
                         if(jsonObject.has("message")) {
                             String messageValue = jsonObject.getString("message");
-                            Log.d("SERVER", "Message value comparison: '" + messageValue + "' vs 'performGesture'");
-                            Log.d("SERVER", "Equals check: " + messageValue.equals("performGesture"));
-                            Log.d("SERVER", "EqualsIgnoreCase check: " + messageValue.equalsIgnoreCase("performGesture"));
 
                             if(messageValue.equalsIgnoreCase("performGesture")) {
                                 Log.d("SERVER", "Processing performGesture request");
@@ -272,8 +279,6 @@ public class SocketService extends Service {
                                     errorResponse.put("message", "Accessibility service not available");
                                     webSocket.send(errorResponse.toString());
                                 }
-                            } else {
-                                Log.d("SERVER", "Message does not match performGesture: '" + messageValue + "'");
                             }
                         }
 
@@ -479,6 +484,7 @@ public class SocketService extends Service {
         }
 
         public void BroadcastMessage(String message) {
+            Log.d("SERVER", "Broadcasting message to " + _sockets.size() + " clients: " + message.substring(0, Math.min(100, message.length())) + "...");
             for (WebSocket socket : _sockets)
                 socket.send(message);
         }
