@@ -26,3 +26,17 @@ The web socket server is a little bit buggy. Future versions of this will rely o
 If the screen is actively updating when a capture is triggered, it may crash due to a null pointer exception. 
 
 The code is very messy and is currently in a state of "is this possible and can I get it to work". Future iterations will focus on cleaning up the code, changing to a web socket client on the device rather than a server, stability, and efficiency improvements
+
+## Bug Fixes
+
+### Null Accessibility Node Crash Prevention (June 2025)
+Fixed race condition crashes during tree capture when UI changes occurred while accessibility tree traversal was in progress. The issue manifested as null accessibility nodes appearing in the tree structure during UI transitions, causing NullPointerExceptions when TreeDebug attempted to process them.
+
+**Root cause**: Overlay commands and rapid UI state changes could create race conditions where `window.getRoot()` would return null nodes during tree capture.
+
+**Solution**: Added defensive filtering in `startCapture()` to:
+- Filter out null windows before processing
+- Filter out windows with null root nodes before passing to TreeDebug
+- Gracefully handle capture failures with proper error responses to clients
+
+This fix prevents crashes and ensures stable tree capture even during active UI updates.
